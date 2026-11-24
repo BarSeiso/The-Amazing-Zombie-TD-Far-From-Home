@@ -1,0 +1,150 @@
+ZOMBIE TOWER DEFENSE — KONSEP & RENCANA IMPLEMENTASI
+Versi 0.5 | 18 November 2026
+Status prototipe Windows dengan 15 wave. Nilai awal dan hal yang perlu diuji saat balancing ada di bagian 15.
+
+RINGKASAN GAMEPLAY
+- Pemain bebas membeli, menempatkan, meng-upgrade, dan menjual peleton selama permainan berjalan, termasuk saat wave aktif dan ketika krisis berlangsung. Pause membekukan permainan dan pengelolaan pertahanan.
+- Mode Krisis terjadi tepat sekali pada salah satu dari lima wave terakhir. Retry mengacak kembali wave krisis dan bisa menghasilkan nomor wave yang sama. Setelah semua musuh normal tuntas, ada jeda singkat sebelum sirene, efek merah, dan musik krisis mengumumkan gerombolan tambahan dengan komposisi acak.
+- Pemain mendapat uang dari musuh yang dikalahkan dan bonus kecil yang naik bertahap sepanjang permainan. Shelter yang sudah terkena damage mendapat pemulihan sebagian sebelum wave berikutnya, dengan batas di bawah HP penuh.
+- Peleton otomatis menyerang musuh dalam jangkauan yang paling dekat ke shelter mengikuti jalur. Efek pixel menunjukkan pemasangan peleton, upgrade, dan serangan.
+
+1. VISI
+Game tower defense 2D pixel-art berbasis C, terinspirasi dari loop strategi Bloons TD: pemain membeli, menempatkan bebas, dan meng-upgrade unit pertahanan untuk melindungi shelter militer Indonesia dari zombie. Gameplay cukup kaya, tetapi implementasi dipilih berdasarkan prinsip: solusi paling sederhana yang memenuhi kebutuhan, mudah dipelajari dan dijelaskan.
+
+2. IDENTITAS & SUASANA
+Latar tahun 2042, pascawabah global. Tema pertahanan shelter, survival militer, sedikit tegang namun tetap terbaca dan menyenangkan. Visual pixel-art konsisten, bukan UI datar generik. Semua aset dan identitas visual dibuat orisinal; inspirasi gameplay bukan menyalin aset Bloons TD.
+
+3. ALUR PEMAIN
+Main Menu -> New Game -> Opening Cinematic (sekali di awal, bisa Skip) -> Pilih/Pelajari Map -> Persiapan -> Start Wave -> Hadapi Zombie -> Hasil Wave -> Persiapan berikutnya. Jika run sudah berakhir, tampilkan Menang/Kalah lalu Retry/Menu.
+Sediakan Pause, Settings, dan bantuan kontrol. Jika hanya ada satu map, tidak perlu layar pilih map pada versi awal.
+
+4. OPENING CINEMATIC PIXEL ART
+Scene 1: Bumi dan angka “2042”.
+Scene 2: penyebaran wabah di kota-kota.
+Scene 3: kehancuran dan berkurangnya populasi.
+Scene 4: penyintas menuju shelter yang dikelola militer Indonesia.
+Scene 5: pemain ditunjuk memimpin pertahanan; kamera menuju peta permainan.
+Setiap adegan punya ilustrasi pixel art orisinal, narasi singkat, dan durasi 12 detik. Total durasinya 60 detik. Skip atau Esc langsung membuka persiapan wave pertama; Enter melanjutkan ke adegan berikutnya. New Game memutar pembuka, sedangkan Retry langsung masuk ke persiapan.
+Teknis. Modul story menyimpan teks dan durasi per adegan, menggambar ilustrasi, dan mengatur transisi dengan timer sederhana.
+
+5. GAMEPLAY INTI
+
+Penempatan dan transaksi
+- Pemain memilih peleton dari panel dan menempatkannya dengan mouse di posisi bebas. Preview menampilkan ghost peleton, lingkaran jangkauan, warna untuk posisi valid atau invalid, dan harga.
+- Seluruh area yang ditempati peleton harus berada di dalam area bermain dan bebas dari jalur maupun peleton lain. Gunakan pemeriksaan bentuk sederhana yang memperhitungkan lebar jalur.
+- Pembelian berhasil saat pemain mengeklik posisi valid dengan saldo cukup. Pada saat itu uang langsung dipotong dan peleton siap menembak jika ada musuh dalam jangkauan. Memilih kartu, membatalkan penempatan, atau mengeklik posisi invalid tidak memotong uang.
+- Peleton yang sudah dipasang tetap di tempatnya. Pemain bisa menjualnya dengan pengembalian sebagian dari total biaya beli dan semua upgrade yang sudah dibayar. Persentase pengembalian masih perlu ditentukan.
+- Beli, penempatan, upgrade, dan jual tersedia saat persiapan, wave aktif, jeda sebelum krisis, peringatan, dan serbuan tambahan. Pause menghentikan simulasi dan menonaktifkan perubahan pertahanan sampai permainan dilanjutkan.
+
+Combat dan hasil permainan
+- Musuh mengikuti waypoint pada jalur yang terlihat jelas. Peleton memprioritaskan musuh dalam jangkauan dengan sisa jarak terpendek ke shelter sepanjang jalurnya.
+- Musuh yang mati memberi uang satu kali. Musuh yang mencapai shelter mengurangi HP shelter satu kali. Bonus akhir wave diberikan satu kali saat wave tuntas.
+- Jika serangan mematikan mengenai musuh pada langkah simulasi yang sama saat musuh itu mencapai shelter, proses serangannya lebih dahulu. Musuh mati dan HP shelter tidak berkurang karena musuh tersebut.
+- Shelter dengan HP nol memicu kekalahan. Pemain menang jika wave terakhir benar-benar selesai dan shelter masih punya HP.
+- Saat beralih ke persiapan wave berikutnya, shelter yang terluka memulihkan sedikit HP. Usulan prototipe adalah +1 HP per transisi, dengan batas pemulihan sebesar HP maksimum dikurangi 1. Shelter yang belum pernah terkena damage tetap memiliki HP penuh.
+- Start Wave tersedia saat persiapan. Opsi speed 1x/2x dapat ditambahkan setelah sistem stabil.
+
+6. PELETON & UPGRADE
+- Archer murah dan menembak lebih cepat daripada Sniper, dengan damage per tembakan dan jangkauan lebih rendah. Cocok menghadapi beberapa musuh ringan yang datang beruntun.
+- Cannon menembak lambat dan memberi damage area. Cocok menghadapi kelompok musuh yang berdekatan.
+- Sniper mahal dan menembak lambat, dengan jangkauan panjang dan damage besar per tembakan. Cocok menghadapi musuh ber-HP tinggi dari jauh.
+- Upgrade dapat menambah damage, memperluas jangkauan, dan mempercepat reload. Jika peleton sedang reload, sisa waktu reload saat itu berjalan seperti biasa. Durasi reload baru dipakai setelah tembakan berikutnya.
+- Harga, damage, jangkauan, dan durasi reload ditentukan saat balancing. Target awalnya 2–3 level upgrade tanpa cabang.
+
+7. CONTOH MUSUH
+- Walker adalah zombie standar.
+- Zombie Pelari (Runner) bergerak cepat dan punya HP rendah.
+- Mutan Berat (Tank) bergerak lambat dan punya HP tinggi.
+- Boss adalah musuh khusus yang bisa muncul sebagai bagian dari komposisi gerombolan krisis.
+Stat setiap jenis musuh mencakup HP, kecepatan, uang yang diberikan saat mati, dan damage ke shelter. Mulai dengan perbedaan visual dan perilaku sederhana.
+
+8. SISTEM WAVE & MODE KRISIS
+Saat New Game atau Retry, game memilih secara acak tepat satu wave krisis dari lima wave terakhir. Untuk target 15 wave, pilihannya adalah wave 11 sampai 15. Retry membuat undian baru dengan peluang terpilihnya nomor wave yang sama. Pilihan disimpan selama run dan hanya diketahui sistem.
+
+Urutan wave
+1. Pemain menekan Start Wave. Musuh normal muncul dari antrean dengan jeda yang ditetapkan untuk wave tersebut.
+2. Setelah antrean normal kosong dan semua musuh normal sudah mati atau mencapai shelter, wave biasa bisa selesai. Pada wave krisis, game masuk ke jeda singkat ketika peta sudah kosong. Wave masih berjalan dan Start Wave baru tersedia setelah wave ini selesai. Durasi jeda 2–3 detik menjadi nilai awal untuk playtest.
+3. Setelah jeda, sirene, efek merah dari tepi layar, dan musik krisis (boss music) menjadi satu-satunya peringatan. Durasi peringatan awal 3–5 detik sebelum musuh tambahan muncul. Pemain tetap bisa mengelola peleton selama jeda, peringatan, dan serbuan.
+4. Komposisi gerombolan tambahan diacak. Sebagian kemungkinan mencakup Boss, sehingga musik krisis menandakan serbuan tambahan pada setiap komposisi. Gerombolan mengikuti jalur yang sudah ada. Jika batas jumlah musuh aktif tercapai, tunda spawn selanjutnya dan simpan musuh itu dalam antrean. Musuh tambahan memberi uang ketika mati.
+5. Wave krisis selesai saat antrean tambahan kosong dan semua musuh tambahan sudah mati atau mencapai shelter. Setiap wave yang tuntas memberi satu bonus uang, termasuk wave krisis. Bonus meningkat sedikit demi sedikit seiring progres wave. Jika masih ada wave berikutnya, selesaikan pemulihan HP sebelum membuka persiapan. Jika wave terakhir tuntas dan shelter bertahan, tampilkan hasil kemenangan setelah bonus diberikan.
+
+State wave biasa
+PREPARE -> NORMAL_WAVE -> WAVE_COMPLETE
+
+State wave dengan krisis
+PREPARE -> NORMAL_WAVE -> CRISIS_GAP -> CRISIS_WARNING -> CRISIS_WAVE -> WAVE_COMPLETE
+
+NORMAL_WAVE dan CRISIS_WAVE mencakup spawn serta penyelesaian semua musuh dari antrean masing-masing. Jika HP shelter mencapai nol, game langsung beralih ke layar kekalahan.
+
+9. UI/UX & ANIMASI PIXEL ART
+Arah visual: panel seperti perangkat taktis militer retro, bingkai pixel berlapis, ikon unit yang khas, tombol dengan pressed/hover states, tekstur halus, tipografi pixel untuk judul dan font sangat terbaca untuk angka.
+Layout:
+- Atas: Wave, uang, HP shelter, pause, speed.
+- Sisi kanan/bawah: kartu Archer/Cannon/Sniper dengan harga.
+- Klik peleton untuk melihat damage, jangkauan, laju tembak, tombol upgrade, dan nilai jual.
+- Tengah: map dan jalur, prioritas visual tertinggi.
+
+Efek visual untuk prototipe
+- Upgrade. Saat transaksi berhasil, stat dan indikator level langsung berubah. Sprite peleton berkedip singkat dan partikel pixel kuning pucat naik dari dasarnya. Coba durasi sekitar 0,3 detik sambil combat tetap berjalan.
+- Pemasangan. Debu pixel menyebar dari dasar peleton. Peleton sudah siap menembak selama efek debu berlangsung.
+- Peringatan krisis. Warna merah muncul dari tepi layar. Bagian tengah tetap terlihat agar pemain bisa membaca jalur, memilih peleton, dan memasangnya saat sirene berbunyi.
+- Tembakan dan impact. Musuh berkedip singkat saat terkena serangan. Ledakan pixel Cannon mengikuti area damage yang sebenarnya. Tambahkan efek ini setelah animasi upgrade, pemasangan, dan peringatan terasa jelas.
+- Opsi visual setelah prototipe. Ubah detail sprite pada level upgrade tinggi agar level mudah dikenali langsung di peta.
+
+Buat animasi dari beberapa frame sprite dan timer sederhana. Pertahankan umpan balik hover, klik, uang kurang, preview jangkauan, dan uang yang diperoleh tanpa memenuhi peta dengan efek.
+Pengaturan Kurangi Animasi tersedia dari menu utama dan Pause. Pengaturan ini meredakan kilatan dan gerak dekoratif. Saat krisis, tepi merah menjadi stabil dan sirene serta musik tetap berbunyi. Pilihan disimpan sebagai pengaturan lokal.
+
+10. FULLSCREEN & RESOLUSI
+Gunakan raylib (C) untuk window, input, gambar, suara, dan toggle fullscreen dengan F11. Resolusi virtual 640×360 menggunakan skala bulat bila ukuran layar memungkinkan. Gunakan letterbox agar rasio pixel art tetap proporsional.
+Konversikan koordinat mouse dari window ke koordinat virtual sebelum hit-testing tombol dan penempatan unit.
+Uji 1280x720, 1920x1080, dan mode windowed. Fullscreen adalah kebutuhan sejak awal, bukan patch terakhir.
+
+11. ARSITEKTUR KODE C YANG MUDAH DIPAHAMI
+Rekomendasi raylib + CMake. Modul awal:
+main.c: init, game loop, shutdown
+game.c/.h: state game, update, draw
+map.c/.h: jalur waypoint dan validasi posisi
+tower.c/.h: unit, serangan, upgrade
+zombie.c/.h: zombie dan pergerakan
+wave.c/.h: spawn, krisis, akhir wave
+ui.c/.h: menu, HUD, panel, input
+story.c/.h: opening scene
+assets.c/.h: load/unload texture, font, audio
+Gunakan struct, array berkapasitas tetap yang cukup, fungsi kecil dengan nama jelas. Hindari ECS, scripting engine, multithreading, dynamic allocation rumit, dan generic abstraction sebelum ada kebutuhan nyata.
+Pisahkan Update (logika) dari Draw (render), gunakan delta time untuk gerak dan cooldown. Tambahkan komentar yang menjelaskan alasan, bukan sekadar mengulang kode.
+
+12. CONTOH PENJELASAN LOGIKA SEDERHANA
+Saat game berjalan, setiap langkah simulasi memperbarui spawn, posisi musuh, dan reload peleton. Peleton yang siap menembak memilih musuh dalam jangkauan berdasarkan sisa jarak ke shelter. Catat musuh yang mencapai ujung jalur dan selesaikan serangan yang mengenainya pada langkah yang sama. Musuh yang mati memberi uang, sedangkan musuh yang masih hidup dan mencapai ujung jalur mengurangi HP shelter. Setelah itu, periksa kekalahan atau transisi wave berdasarkan HP, isi antrean, dan jumlah musuh tersisa.
+
+13. TAHAP PENGEMBANGAN
+Fase 1 — Prototipe. Satu map, tiga wave, Archer dan Walker, HUD pos komando, serta loop permainan dari menu sampai hasil.
+Fase 2 — Konten dan krisis. Lima belas wave, tiga peleton, empat jenis musuh, upgrade dan jual, operator shelter, serta Mode Krisis dengan peringatan audiovisual.
+Fase 3 — Cinematic dan detail akhir. Lima adegan pembuka, pengaturan Kurangi Animasi, detail lingkungan dan perlengkapan upgrade, serta playtest tampilan, transaksi, dan beban musuh.
+
+14. KEBUTUHAN PENGUJIAN
+- Saldo hanya berkurang setelah klik di posisi valid dengan uang cukup. Coba posisi yang menyentuh tepi jalur, tepi map, dan peleton lain.
+- Peleton yang baru dipasang bisa langsung menembak jika ada target. Upgrade di tengah reload hanya memotong saldo satu kali dan mempertahankan sisa reload. Reload sesudah tembakan memakai durasi yang baru.
+- Penjualan mengembalikan sebagian dari harga beli dan biaya upgrade. Posisi peleton tetap setelah dipasang.
+- Jangkauan peleton dan posisi mouse benar saat fullscreen. Musuh bergerak mulus melewati waypoint.
+- Pada setiap run penuh, tepat satu krisis terjadi dalam lima wave terakhir. Saat pengujian, paksa wave krisis di posisi pertama dan terakhir dari rentang itu untuk memeriksa kedua batas.
+- Uji Retry dengan hasil undian yang sama dan berbeda. Uji komposisi gerombolan dengan Boss dan dengan zombie atau mutan biasa. Sirene, efek merah, dan musik krisis muncul pada keduanya.
+- Selama jeda krisis, peta kosong dan Start Wave belum tersedia. Jika batas jumlah musuh aktif tercapai, antrean spawn tetap utuh. Wave selesai setelah antrean kosong dan seluruh musuh sudah tuntas.
+- Uji bonus uang setelah wave normal dan wave krisis. Selama jeda krisis, bonus belum diberikan. Setelah wave tuntas, bonus masuk tepat satu kali meski layar hasil tampil selama beberapa frame.
+- Periksa perkembangan bonus antargelombang. Bonus naik dalam kenaikan kecil sepanjang run, termasuk saat krisis jatuh di nomor wave yang berbeda.
+- Uji pemulihan HP satu kali sebelum wave berikutnya. Dengan maksimum 20 HP dan sisa 17 HP, aturan prototipe menghasilkan 18 HP setelah satu transisi dan berhenti memulihkan pada 19 HP. Shelter yang masih 20 HP tetap penuh. Kekalahan pada 0 HP langsung mengakhiri run.
+- Coba beli, upgrade, dan jual peleton saat wave normal, selama peringatan krisis, dan saat serbuan tambahan. Masing-masing transaksi memakai aturan harga dan penempatan yang sama seperti saat persiapan.
+- Jika satu musuh mati persis saat mencapai shelter, pemain menerima uang dan shelter tetap utuh dari serangan musuh itu. Jika shelter punya 1 HP, uji juga hasil saat musuh benar-benar lolos.
+- Pause menghentikan timer, spawn, dan serangan serta mencegah perubahan saldo, posisi, dan upgrade peleton. Setelah dilanjutkan, seluruh timer meneruskan sisa waktunya.
+- Resource dilepas saat game keluar dan FPS tetap stabil saat banyak musuh aktif.
+
+15. BATASAN & KEPUTUSAN YANG BELUM FINAL
+Target awal PC Windows, single-player, 2D, dengan kontrol mouse. Cakupan usulan untuk versi awal adalah satu map, 15 wave, tiga peleton, empat jenis musuh, dan satu cinematic.
+
+Nilai awal untuk balancing
+- Coba +1 HP per transisi wave dengan batas pemulihan 1 HP di bawah maksimum. Uji apakah pemain masih bisa bertahan setelah beberapa musuh lolos di wave awal.
+- Tentukan bonus berdasarkan nomor wave dengan kenaikan kecil. Gunakan harga peleton dan uang dari musuh sebagai pembanding saat menentukan nominal dan interval kenaikannya.
+
+Keputusan lain mencakup cakupan akhir map dan wave, gaya sprite dan aset audio, save/load, harga jual dan angka balancing lainnya, ukuran tim, serta tenggat.
+
+16. PRINSIP BELAJAR
+Setiap fitur dibangun lewat urutan: tujuan -> alur bahasa sederhana -> struktur data -> fungsi -> implementasi -> uji -> penjelasan baris/konsep penting. Pilih pendekatan yang mudah dipahami jika kualitas hasil tetap memenuhi kebutuhan. Jangan membatasi materi hanya pada yang sudah diajarkan.
