@@ -10,9 +10,9 @@ const Vector2 route[PATH_COUNT] = {
 };
 
 const TowerSpec tower_specs[TOWER_KIND_COUNT] = {
-    [ARCHER] = { "Archer", 55, 0, {{13, 77, 40, .56f}, {19, 84, 65, .49f}, {27, 92, 0, .41f}} },
-    [CANNON] = { "Cannon", 100, 28, {{30, 82, 75, 1.35f}, {43, 91, 110, 1.20f}, {62, 100, 0, 1.04f}} },
-    [SNIPER] = { "Sniper", 125, 0, {{69, 130, 85, 1.65f}, {99, 145, 130, 1.48f}, {144, 160, 0, 1.30f}} }
+    [ARCHER] = { "Archer", 55, 0, {{11, 77, 40, .56f}, {15, 84, 65, .49f}, {20, 92, 0, .41f}} },
+    [CANNON] = { "Cannon", 100, 24, {{30, 82, 75, 1.35f}, {39, 91, 110, 1.20f}, {52, 100, 0, 1.04f}} },
+    [SNIPER] = { "Sniper", 125, 0, {{69, 130, 85, 1.65f}, {90, 145, 130, 1.48f}, {122, 160, 0, 1.30f}} }
 };
 
 static const struct {
@@ -22,7 +22,9 @@ static const struct {
     [WALKER] = { 31, 5, 5, 2, 40 },
     [RUNNER] = { 23, 4, 6, 2, 67 },
     [MUTANT] = { 110, 14, 10, 3, 28 },
-    [BOSS] = { 550, 35, 32, 5, 22 }
+    [BOSS] = { 550, 35, 32, 5, 22 },
+    [ARMORED] = { 110, 14, 10, 3, 28 },
+    [BREACHER] = { 165, 21, 10, 5, 28 }
 };
 
 static const struct {
@@ -37,7 +39,8 @@ static const struct {
 };
 
 static const int crisis_groups[][ENEMY_KIND_COUNT] = {
-    { 8, 17, 4, 0 }, { 13, 6, 10, 0 }, { 7, 8, 4, 1 }, { 8, 5, 7, 1 }
+    { 8, 17, 4, 0, 5, 5 }, { 13, 6, 10, 0, 8, 4 },
+    { 7, 8, 4, 1, 7, 6 }, { 8, 5, 7, 1, 4, 9 }
 };
 
 static float distance_squared(Vector2 a, Vector2 b)
@@ -96,7 +99,12 @@ bool start_wave(Game *g)
     g->state = WAVE;
     g->lastBonus = 0;
     g->lastHeal = 0;
-    queue_group(g, waves[g->wave-1].counts);
+    int counts[ENEMY_KIND_COUNT];
+    for (int i = 0; i < ENEMY_KIND_COUNT; i++) counts[i] = waves[g->wave-1].counts[i];
+    if (g->wave >= 6) counts[ARMORED] = 1 + (g->wave-6)/2;
+    if (g->wave >= 9) counts[BREACHER] = 1 + (g->wave-9)/2;
+    counts[MUTANT] -= counts[ARMORED] + counts[BREACHER];
+    queue_group(g, counts);
     return true;
 }
 
@@ -179,6 +187,7 @@ static void spawn_next(Game *g, float dt)
         if (g->enemies[i].active) continue;
         EnemyKind kind = g->queue[g->queueNext++];
         int hp = enemies[kind].hp + (g->wave-1)*enemies[kind].growth;
+        if (g->state == CRISIS_WAVE) hp = hp*125/100;
         g->enemies[i] = (Enemy){ .pos = route[0], .speed = enemies[kind].speed, .kind = kind,
             .hp = hp, .maxHp = hp, .next = 1, .active = true, .stride = (g->queueNext%3)*.13f };
         g->spawnIn = g->state == CRISIS_WAVE ? .23f : waves[g->wave-1].interval;
@@ -188,6 +197,7 @@ static void spawn_next(Game *g, float dt)
 
 static void move_enemy(Enemy *z, float dt)
 {
+    if (z->kind == BREACHER && z->next == PATH_COUNT-1) z->speed = enemies[RUNNER].speed;
     float left = z->speed*dt;
     while (left > 0 && z->next < PATH_COUNT) {
         Vector2 end = route[z->next];
@@ -208,8 +218,9 @@ static void move_enemy(Enemy *z, float dt)
     z->stride += dt;
 }
 
-static void hurt_enemy(Game *g, Enemy *target, int damage)
+static void hurt_enemy(Game *g, Enemy *target, int damage, TowerKind weapon)
 {
+    if (target->kind == ARMORED && weapon != SNIPER) damage = damage*6/10;
     target->hp -= damage;
     target->hit = .12f;
     if (target->hp > 0) return;
@@ -226,8 +237,12 @@ static void fire_tower(Game *g, Tower *t)
     Enemy *target = NULL;
     for (int i = 0; i < MAX_ENEMIES; i++) {
         Enemy *z = &g->enemies[i];
-        if (z->active && distance_squared(t->pos, z->pos) <= stats->range*stats->range &&
-            (!target || z->walked > target->walked)) target = z;
+        if (!z->active || distance_squared(t->pos, z->pos) > stats->range*stats->range) continue;
+        if (target && t->kind == SNIPER && (target->kind == ARMORED) != (z->kind == ARMORED)) {
+            if (z->kind == ARMORED) target = z;
+        } else if (!target || z->walked > target->walked) {
+            target = z;
+        }
     }
     if (!target) return;
 
@@ -238,14 +253,14 @@ static void fire_tower(Game *g, Tower *t)
     Vector2 muzzle = { t->pos.x+t->facing*9, t->pos.y-10 };
     fx(g, SHOT, muzzle, (Vector2){ impact.x, impact.y-7 }, .14f, t->kind);
     if (!spec->splash) {
-        hurt_enemy(g, target, stats->damage);
+        hurt_enemy(g, target, stats->damage, t->kind);
         return;
     }
     fx(g, EXPLOSION, impact, impact, .28f, spec->splash);
     for (int i = 0; i < MAX_ENEMIES; i++) {
         Enemy *z = &g->enemies[i];
         if (z->active && distance_squared(z->pos, impact) <= spec->splash*spec->splash)
-            hurt_enemy(g, z, stats->damage);
+            hurt_enemy(g, z, z == target ? stats->damage : stats->damage/2, t->kind);
     }
 }
 

@@ -53,6 +53,21 @@ static void note(Score *s, Voice voice, float start, float duration, int midi, f
     }
 }
 
+// Derau pemancar dengan selubung pendek agar tidak berbunyi klik saat berganti cue.
+static void radio_noise(Score *s, float start, float duration, float gain)
+{
+    unsigned noise=41;
+    float previous=0;
+    int begin=(int)(start*RATE), length=(int)(duration*RATE);
+    for (int i=0; i<length && begin+i<s->frames; i++) {
+        noise=noise*1664525u+1013904223u;
+        float sample=(float)(noise>>16)/32768-1;
+        float edge=fminf(1,fminf(i,length-1-i)/220.f);
+        s->samples[begin+i]+=(sample-previous)*edge*gain;
+        previous=sample;
+    }
+}
+
 static void arrange(Score *s, MusicCue cue, int bars, float beat)
 {
     // Four-note D-F-G-A signature with different answers over a D minor progression.
@@ -64,7 +79,35 @@ static void arrange(Score *s, MusicCue cue, int bars, float beat)
     static const float positions[] = {0, .75f, 1.5f, 2.75f};
     for (int bar = 0; bar < bars; bar++) {
         float at = bar*4*beat;
+        if (cue == MUSIC_MENU) {
+            if (bar%4 == 0) {
+                radio_noise(s,at,.75f,.09f);
+                note(s,METALLOPHONE,at+beat,.52f,62,.20f);
+                note(s,METALLOPHONE,at+2*beat,.65f,65,.16f);
+                note(s,METALLOPHONE,at+3*beat,.9f,69,.14f);
+            }
+            note(s,PAD,at,4.1f*beat,chords[bar%4][0]-12,.085f);
+            continue;
+        }
+        if (cue == MUSIC_PREPARE) {
+            note(s,BASS,at,4*beat,32,.075f);
+            if (bar%3 == 1) {
+                note(s,RIM,at+beat,.14f,48,.18f);
+                note(s,RIM,at+1.4f*beat,.11f,55,.12f);
+            }
+            continue;
+        }
         int scene = bar/4;
+        if (cue == MUSIC_STORY) {
+            if (scene < 3) radio_noise(s,at,.18f+scene*.22f,.035f);
+            if (scene == 3) {
+                note(s,BASS,at,3*beat,29,.11f);
+                radio_noise(s,at+3*beat,.12f,.075f);
+            }
+        }
+        if (cue == MUSIC_CRISIS) {
+            for (int hit=0;hit<4;hit++) note(s,RIM,at+hit*beat,.19f,44+hit*3,.21f);
+        }
         bool story = cue == MUSIC_STORY;
         bool crisis = cue == MUSIC_CRISIS;
         bool pulse = cue == MUSIC_WAVE || crisis || (story && (scene == 1 || scene >= 3));
@@ -103,19 +146,6 @@ static void arrange(Score *s, MusicCue cue, int bars, float beat)
     }
 }
 
-static void stinger(Score *s, bool win)
-{
-    static const int victory[] = {62, 65, 67, 69, 74};
-    static const int defeat[] = {69, 67, 65, 62};
-    const int *phrase = win ? victory : defeat;
-    for (int i = 0; i < (win ? 5 : 4); i++) {
-        note(s, METALLOPHONE, .16f+.31f*i, .78f, phrase[i], .32f);
-    }
-    note(s, PAD, .04f, 2.6f, win ? 50 : 46, .17f);
-    note(s, PAD, .4f, 2.2f, win ? 57 : 53, .12f);
-    note(s, DRUM, .14f, .36f, win ? 39 : 34, .16f);
-}
-
 static void le16(unsigned char *dst, unsigned value)
 {
     dst[0] = (unsigned char)value;
@@ -134,7 +164,7 @@ unsigned char *render_score(MusicCue cue, int *size)
     static const int measures[MUSIC_COUNT] = {8, STORY_SCENES*4, 8, 16, 16, 0, 0};
     bool result = cue == MUSIC_WIN || cue == MUSIC_LOSS;
     float beat = result ? 0 : 60.0f/tempos[cue];
-    float seconds = result ? 3 : cue == MUSIC_STORY ? STORY_SCENES*STORY_SCENE_SECONDS : measures[cue]*4*beat;
+    float seconds = result ? (cue == MUSIC_WIN ? 15 : 12) : cue == MUSIC_STORY ? STORY_SCENES*STORY_SCENE_SECONDS : measures[cue]*4*beat;
     Score mix = { .frames = (int)lroundf(seconds*RATE), .looping = cue != MUSIC_STORY && !result };
     *size = WAV_HEADER+mix.frames*2;
     unsigned char *wav = calloc(1, *size);
@@ -146,8 +176,18 @@ unsigned char *render_score(MusicCue cue, int *size)
         return NULL;
     }
 
-    if (result) stinger(&mix, cue == MUSIC_WIN);
-    else arrange(&mix, cue, measures[cue], beat);
+    if (cue == MUSIC_WIN) {
+        note(&mix,PAD,.4f,6.5f,50,.11f);
+        radio_noise(&mix,5.1f,.4f,.09f);
+        for (int i=0;i<3;i++) note(&mix,METALLOPHONE,10.5f+i*.75f,1.6f,
+                                    (int[]){62,65,69}[i],.24f);
+        note(&mix,PAD,11,3.8f,57,.15f);
+    } else if (cue == MUSIC_LOSS) {
+        note(&mix,RIM,.04f,.18f,38,.32f);
+        radio_noise(&mix,4.2f,.8f,.12f);
+        radio_noise(&mix,6.3f,.4f,.07f);
+        for (int i=0;i<3;i++) note(&mix,BASS,8.2f+i,1.1f,28-i,.19f);
+    } else arrange(&mix, cue, measures[cue], beat);
     memcpy(wav, "RIFF", 4);
     le32(wav+4, *size-8);
     memcpy(wav+8, "WAVEfmt ", 8);

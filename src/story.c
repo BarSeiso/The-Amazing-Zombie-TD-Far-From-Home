@@ -185,6 +185,85 @@ static void refuge(float t)
     }
 }
 
+// Meja pendataan yang sama muncul saat Sari datang dan di akhir permainan.
+static void desk(int x, int y, bool fallen, int names)
+{
+    block(x, y, 122, 7, ochre);
+    block(x+5, y+7, 6, 30, coal);
+    block(x+111, y+7, 6, 30, coal);
+    block(x+26, y-13, 34, 15, CREAM);
+    for (int i=0; i<names; i++) block(x+29, y-10+i*3, 13+i, 1, steel);
+    block(x+52, y-3, 23, 2, AMBER);
+    int rx=x+(fallen ? 85 : 13), ry=y+(fallen ? 24 : -15);
+    block(rx, ry, 22, 15, coal);
+    block(rx+2, ry+3, 9, 3, steel);
+    block(rx+16, ry+4, 3, 2, fallen ? ALERT_RED : MINT);
+    DrawLine(rx+19,ry,rx+(fallen ? 34 : 22),ry-(fallen ? 5 : 18),steel);
+}
+
+static void ending_scene(const Story *s, float t)
+{
+    bool lost = s->kind == OVERRUN;
+    bool dawn = s->scene == 2;
+    Color sky = dawn ? (Color){163,155,120,255} : navy;
+    block(24,20,592,245,sky);
+    for (int i=0; i<18; i++) {
+        int h=12+(i*37)%54;
+        block(24+i*34,155-h,32,h,steel);
+        block(28+i*34,163-h,4,5,dawn ? navy : ochre);
+    }
+    block(24,155,592,110,METAL);
+    for (int i=0;i<96;i++) {
+        int x=28+(i*73)%580, y=165+(i*29)%92;
+        block(x,y,2+i%6,1,Fade(steel,.36f));
+    }
+    block(32,33,88,13,Fade(coal,.8f));
+    label(dawn ? "05.41 WIB" : "03.17 WIB",40,35,10,CREAM);
+    if (s->scene != 1) {
+        for (int i=0; i<7; i++) {
+            int x=173+i*44+(int)(t*1.5f), y=151+(i%3)*8;
+            survivor(x,y,((int)(t*2)+i)%2, i==2 ? ochre : steel);
+            if (lost && dawn) {
+                block(x+6,y+2,7,5,MINT);
+                block(x+10,y+4,3,1,INK);
+                block(x-5,y+9,12,3,MINT);
+            }
+            if (i==2) { block(x+12,y+10,8,11,ochre); block(x+13,y+12,6,7,CREAM); }
+        }
+        for (int x=80; x<560; x+=16) block(x,114,3,92,RIM);
+        block(73,124,495,4,coal);
+        block(73,197,495,5,coal);
+        block(316,108,7,98,coal);
+        if (!lost && dawn) DrawLineEx((Vector2){320,149},(Vector2){406,98},5,AMBER);
+        else {
+            int drop=lost ? (int)(t*17) : 0;
+            block(300,152,18,6,ochre);
+            block(319,152+drop,22,5,AMBER);
+        }
+        desk(60,223,lost && dawn,3);
+    } else {
+        block(116,62,410,157,coal);
+        block(121,66,400,148,METAL);
+        block(122,191,398,23,navy);
+        for (int x=122;x<520;x+=33) block(x,192,1,22,RIM);
+        block(424,83,75,68,coal);
+        block(428,87,67,60,sky);
+        for (int x=432;x<496;x+=13) block(x,87,2,60,RIM);
+        block(428,118,67,3,steel);
+        block(137,113,46,54,ochre);
+        block(140,116,40,48,CREAM);
+        for (int row=0;row<5;row++) block(144,123+row*7,24-row,1,steel);
+        block(245,113,5,23,coal);
+        block(235,135,25,3,AMBER);
+        block(229,138,37,2,steel);
+        label("POS PENDAFTARAN",155,85,14,CREAM);
+        if (!lost) survivor(225,139,false,ochre);
+        desk(214,172,lost,4);
+        block(394,95,17,37,navy);
+        block(398,99,9,8,lost ? ALERT_RED : MINT);
+    }
+}
+
 static void command(float t, bool reduced)
 {
     block(24, 20, 592, 245, navy);
@@ -215,13 +294,23 @@ static void command(float t, bool reduced)
     }
 }
 
-static const struct {
-    const char *title, *line1, *line2;
-} scenes[STORY_SCENES] = {
+typedef struct { const char *title, *line1, *line2; } Caption;
+static const Caption endings[2][3] = {
+    {
+        {"PAGAR TIMUR", "Tembakan terakhir berhenti. Pagar masih terkunci.", "Operator: Bu Sari, daftarnya masih di sana?"},
+        {"DAFTAR HADIR", "Bu Sari menarik kertas dari bawah radio.", "Bu Sari: Pak Darma?"},
+        {"GILIRAN PAGI", "Dari balik pagar seseorang menjawab, \"Hadir, Bu.\"", "Operator menaruh radio dan mengangkat palang."}
+    },{
+        {"GERENDEL", "Gerendel jatuh di sebelah dalam pagar.", "Operator: Tutup pintu ruang pendaftaran!"},
+        {"SALURAN TUJUH", "Radio tergeletak di bawah meja. Lampunya menyala.", "Operator: Bu Sari? Jawab kalau dengar."},
+        {"PAGI DI SEKTOR 07", "Di balik pagar, semua warga sudah terinfeksi.", "Bu Sari masih menggenggam papan daftar hadir."}
+    }
+};
+static const Caption scenes[STORY_SCENES] = {
     { "BUMI / 2042", "Wabah global memutus komunikasi antarkota.", "Saluran darurat mulai menyiarkan pesan terakhir." },
     { "KOTA-KOTA TERISOLASI", "Wabah menyebar dari satu kota ke kota berikutnya.", "Stasiun evakuasi kewalahan menampung warga." },
     { "SETELAH GELOMBANG PERTAMA", "Distrik yang dulu padat kini nyaris kosong.", "Semakin sedikit penyintas yang menjawab panggilan radio." },
-    { "JALUR MENUJU SHELTER", "Militer Indonesia membuka gerbang Sektor 07.", "Penyintas tiba melalui jalan yang masih bisa dilalui." },
+    { "JALUR MENUJU SHELTER", "Bu Sari menyelipkan daftar warga di bawah radio.", "Operator: Nanti panggil satu-satu, Bu. Sesudah gerbang ditutup." },
     { "PENUNJUKAN KOMANDAN", "Pos komando menyerahkan kendali pertahanan kepadamu.", "Tempatkan peleton dan jaga gerbang shelter." }
 };
 
@@ -230,20 +319,32 @@ void begin_story(Story *story)
     *story = (Story){ .playing = true };
 }
 
+void begin_ending(Story *story, bool won)
+{
+    *story = (Story){ .kind = won ? EVACUATED : OVERRUN, .playing = true };
+}
+
+float story_scene_seconds(const Story *story)
+{
+    if (story->kind == OPENING) return STORY_SCENE_SECONDS;
+    return story->kind == OVERRUN ? 4 : 5;
+}
+
 void advance_story(Story *story)
 {
     if (!story->playing) return;
     story->scene++;
     story->elapsed = 0;
-    if (story->scene == STORY_SCENES) story->playing = false;
+    if (story->scene == (story->kind == OPENING ? STORY_SCENES : 3)) story->playing = false;
 }
 
 void tick_story(Story *story, float dt)
 {
     if (!story->playing) return;
     story->elapsed += dt;
-    while (story->playing && story->elapsed >= STORY_SCENE_SECONDS) {
-        float carry = story->elapsed-STORY_SCENE_SECONDS;
+    float duration = story_scene_seconds(story);
+    while (story->playing && story->elapsed >= duration) {
+        float carry = story->elapsed-duration;
         advance_story(story);
         if (story->playing) story->elapsed = carry;
     }
@@ -254,19 +355,22 @@ void draw_story(const Story *story, bool reduced)
     if (!story->playing) return;
     float t = reduced ? 0 : story->elapsed;
     BeginScissorMode(24, 20, 592, 245);
-    switch (story->scene) {
+    if (story->kind != OPENING) ending_scene(story, t);
+    else switch (story->scene) {
         case 0: earth(t); break;
         case 1: outbreak(t); break;
         case 2: ruins(t); break;
-        case 3: refuge(t); break;
+        case 3: refuge(t); desk(153,214,false,3); break;
         case 4: command(t, reduced); break;
     }
     if (!reduced && t < .55f) block(24, 20, 592, 245, Fade(INK, 1-t/.55f));
     EndScissorMode();
     DrawRectangleLines(24, 20, 592, 245, RIM);
     panel((Rectangle){ 24, 276, 592, 62 }, METAL);
-    label(scenes[story->scene].title, 39, 286, 12, AMBER);
-    label(scenes[story->scene].line1, 39, 305, 10, CREAM);
-    label(scenes[story->scene].line2, 39, 320, 10, CREAM);
-    label(TextFormat("%02d / %02d", story->scene+1, STORY_SCENES), 539, 283, 10, MUTED);
+    const Caption *caption = story->kind == OPENING ? &scenes[story->scene] :
+        &endings[story->kind == OVERRUN][story->scene];
+    label(caption->title, 39, 286, 12, AMBER);
+    label(caption->line1, 39, 305, 10, CREAM);
+    label(caption->line2, 39, 320, 10, CREAM);
+    label(TextFormat("%02d / %02d", story->scene+1, story->kind == OPENING ? STORY_SCENES : 3), 539, 283, 10, MUTED);
 }

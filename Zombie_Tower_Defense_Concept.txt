@@ -1,12 +1,14 @@
 ZOMBIE TOWER DEFENSE — KONSEP & RENCANA IMPLEMENTASI
-Versi 0.5 | 18 November 2026
+Versi 0.6 | 25 November 2026
 Status prototipe Windows dengan 15 wave. Nilai awal dan hal yang perlu diuji saat balancing ada di bagian 15.
 
 RINGKASAN GAMEPLAY
+- Batas pertahanan enam peleton. Berzirah muncul mulai wave 6, Pendobrak mulai wave 9. Zombie tambahan saat Krisis memiliki 25% HP lebih banyak.
 - Pemain bebas membeli, menempatkan, meng-upgrade, dan menjual peleton selama permainan berjalan, termasuk saat wave aktif dan ketika krisis berlangsung. Pause membekukan permainan dan pengelolaan pertahanan.
 - Mode Krisis terjadi tepat sekali pada salah satu dari lima wave terakhir. Retry mengacak kembali wave krisis dan bisa menghasilkan nomor wave yang sama. Setelah semua musuh normal tuntas, ada jeda singkat sebelum sirene, efek merah, dan musik krisis mengumumkan gerombolan tambahan dengan komposisi acak.
 - Pemain mendapat uang dari musuh yang dikalahkan dan bonus kecil yang naik bertahap sepanjang permainan. Shelter yang sudah terkena damage mendapat pemulihan sebagian sebelum wave berikutnya, dengan batas di bawah HP penuh.
-- Peleton otomatis menyerang musuh dalam jangkauan yang paling dekat ke shelter mengikuti jalur. Efek pixel menunjukkan pemasangan peleton, upgrade, dan serangan.
+- Sniper mengutamakan musuh berzirah. Cannon memberi damage penuh pada target utama dan setengah damage pada target lain dalam radius 24 piksel.
+- Secara umum peleton otomatis menyerang musuh dalam jangkauan yang paling dekat ke shelter mengikuti jalur. Efek pixel menunjukkan pemasangan peleton, upgrade, dan serangan.
 
 1. VISI
 Game tower defense 2D pixel-art berbasis C, terinspirasi dari loop strategi Bloons TD: pemain membeli, menempatkan bebas, dan meng-upgrade unit pertahanan untuk melindungi shelter militer Indonesia dari zombie. Gameplay cukup kaya, tetapi implementasi dipilih berdasarkan prinsip: solusi paling sederhana yang memenuhi kebutuhan, mudah dipelajari dan dijelaskan.
@@ -15,7 +17,7 @@ Game tower defense 2D pixel-art berbasis C, terinspirasi dari loop strategi Bloo
 Latar tahun 2042, pascawabah global. Tema pertahanan shelter, survival militer, sedikit tegang namun tetap terbaca dan menyenangkan. Visual pixel-art konsisten, bukan UI datar generik. Semua aset dan identitas visual dibuat orisinal; inspirasi gameplay bukan menyalin aset Bloons TD.
 
 3. ALUR PEMAIN
-Main Menu -> New Game -> Opening Cinematic (sekali di awal, bisa Skip) -> Pilih/Pelajari Map -> Persiapan -> Start Wave -> Hadapi Zombie -> Hasil Wave -> Persiapan berikutnya. Jika run sudah berakhir, tampilkan Menang/Kalah lalu Retry/Menu.
+Main Menu -> New Game -> Opening Cinematic (sekali di awal, bisa Skip) -> Pilih/Pelajari Map -> Persiapan -> Start Wave -> Hadapi Zombie -> Hasil Wave -> Persiapan berikutnya. Saat kalah, putar tiga adegan jatuhnya shelter (12 detik). Saat menang, putar tiga adegan daftar hadir pagi (15 detik). Setelahnya tampilkan hasil dan Retry/Menu.
 Sediakan Pause, Settings, dan bantuan kontrol. Jika hanya ada satu map, tidak perlu layar pilih map pada versi awal.
 
 4. OPENING CINEMATIC PIXEL ART
@@ -33,7 +35,7 @@ Penempatan dan transaksi
 - Pemain memilih peleton dari panel dan menempatkannya dengan mouse di posisi bebas. Preview menampilkan ghost peleton, lingkaran jangkauan, warna untuk posisi valid atau invalid, dan harga.
 - Seluruh area yang ditempati peleton harus berada di dalam area bermain dan bebas dari jalur maupun peleton lain. Gunakan pemeriksaan bentuk sederhana yang memperhitungkan lebar jalur.
 - Pembelian berhasil saat pemain mengeklik posisi valid dengan saldo cukup. Pada saat itu uang langsung dipotong dan peleton siap menembak jika ada musuh dalam jangkauan. Memilih kartu, membatalkan penempatan, atau mengeklik posisi invalid tidak memotong uang.
-- Peleton yang sudah dipasang tetap di tempatnya. Pemain bisa menjualnya dengan pengembalian sebagian dari total biaya beli dan semua upgrade yang sudah dibayar. Persentase pengembalian masih perlu ditentukan.
+- Peleton yang sudah dipasang tetap di tempatnya. Pemain bisa menjualnya dengan pengembalian sebagian dari total biaya beli dan semua upgrade yang sudah dibayar. Pengembalian sebesar 70% dari total investasi, dibulatkan ke bawah.
 - Beli, penempatan, upgrade, dan jual tersedia saat persiapan, wave aktif, jeda sebelum krisis, peringatan, dan serbuan tambahan. Pause menghentikan simulasi dan menonaktifkan perubahan pertahanan sampai permainan dilanjutkan.
 
 Combat dan hasil permainan
@@ -42,7 +44,7 @@ Combat dan hasil permainan
 - Jika serangan mematikan mengenai musuh pada langkah simulasi yang sama saat musuh itu mencapai shelter, proses serangannya lebih dahulu. Musuh mati dan HP shelter tidak berkurang karena musuh tersebut.
 - Shelter dengan HP nol memicu kekalahan. Pemain menang jika wave terakhir benar-benar selesai dan shelter masih punya HP.
 - Saat beralih ke persiapan wave berikutnya, shelter yang terluka memulihkan sedikit HP. Usulan prototipe adalah +1 HP per transisi, dengan batas pemulihan sebesar HP maksimum dikurangi 1. Shelter yang belum pernah terkena damage tetap memiliki HP penuh.
-- Start Wave tersedia saat persiapan. Opsi speed 1x/2x dapat ditambahkan setelah sistem stabil.
+- Start Wave tersedia saat persiapan. Saat pertempuran, tombol laju atau F mengganti 1x, 2x, 3x, dan 5x. Jeda krisis, sirene dan cerita memakai waktu nyata.
 
 6. PELETON & UPGRADE
 - Archer murah dan menembak lebih cepat daripada Sniper, dengan damage per tembakan dan jangkauan lebih rendah. Cocok menghadapi beberapa musuh ringan yang datang beruntun.

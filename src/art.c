@@ -288,7 +288,7 @@ static void draw_enemy(const Enemy *z, bool reduced)
         { 117, 95, 82, 255 }, { 153, 119, 99, 255 }, { 71, 76, 65, 255 }
     };
     int x = (int)z->pos.x, y = (int)z->pos.y;
-    static const float rates[] = {7, 13, 5, 4};
+    static const float rates[] = {7, 13, 5, 4, 6, 7};
     int step = (int)(z->stride*rates[z->kind]) % 4;
     int bob = step == 1 || step == 3;
     int face = z->next < PATH_COUNT && route[z->next].x < z->pos.x ? -1 : 1;
@@ -297,7 +297,7 @@ static void draw_enemy(const Enemy *z, bool reduced)
     if (z->kind == RUNNER) {
         sprite = runner; w = 15;
         colors[3] = (Color){ 133,86,65,255 }; colors[4] = (Color){ 204,117,77,255 };
-    } else if (z->kind == MUTANT) {
+    } else if (z->kind == MUTANT || z->kind == BREACHER) {
         sprite = mutant; w = 15; h = 11; scale = 2;
         colors[3] = (Color){ 74,99,76,255 }; colors[4] = (Color){ 109,137,92,255 };
     } else if (z->kind == BOSS) {
@@ -312,6 +312,16 @@ static void draw_enemy(const Enemy *z, bool reduced)
     DrawRectangle(x-scale*(3-(step == 1)), y-3*scale-bob, 2*scale, 4*scale+bob, colors[5]);
     DrawRectangle(x+scale*(1-(step == 3)), y-4*scale, 2*scale, 4*scale+bob, colors[5]);
     pixel_sprite(sprite, w, h, x-w*scale/2, y-(h+3)*scale-bob, face, scale, colors, WHITE);
+    if (z->kind == ARMORED) {
+        DrawRectangle(x-5, y-14-bob, 10, 4, RIM);
+        DrawRectangle(x-6, y-11-bob, 12, 2, INK);
+        DrawRectangle(x-4, y-8-bob, 8, 5, METAL);
+        DrawRectangle(x-2, y-8-bob, 2, 5, AMBER);
+    } else if (z->kind == BREACHER) {
+        DrawRectangle(x+face*9-6, y-22-bob, 13, 9, INK);
+        DrawRectangle(x+face*9-5, y-21-bob, 11, 6, ALERT_RED);
+        DrawRectangle(x+face*9-2, y-21-bob, 3, 6, CREAM);
+    }
     if (z->hp < z->maxHp) {
         int bar = scale*10;
         int top = y-(h+3)*scale-4;

@@ -10,12 +10,20 @@
 typedef struct {
     Game game;
     Story story;
-    bool menu, paused, storyJump;
+    bool menu, paused, storyJump, criticalHeard;
+    int speedIndex;
     bool settings, reducedMotion, settingsSaveFailed;
     int selected, placing, musicVolume;
     float noticeTime;
     const char *notice;
 } App;
+
+static const int speeds[] = {1, 2, 3, 5};
+
+static bool fighting(RunState state)
+{
+    return state == WAVE || state == CRISIS_WAVE;
+}
 
 static const Rectangle playButton = { 28, 240, 196, 31 };
 static const Rectangle settingsButton = { 28, 278, 196, 24 };
@@ -176,6 +184,10 @@ static bool update_input(App *app, Vector2 mouse)
     }
     for (int kind = 0; kind < TOWER_KIND_COUNT; kind++) {
         if (IsKeyPressed(KEY_ONE+kind) || (clicked && over(mouse, shop_card(kind)))) {
+            if (g->towerCount >= MAX_TOWERS) {
+                notice(app, "Slot penuh. Pilih peleton yang ingin dijual.");
+                return false;
+            }
             app->placing = app->placing == kind ? -1 : kind;
             app->selected = -1;
             app->noticeTime = 0;
@@ -197,6 +209,10 @@ static bool update_input(App *app, Vector2 mouse)
             }
             return false;
         }
+    }
+    if (fighting(g->state) && (IsKeyPressed(KEY_F) || (clicked && over(mouse, startButton)))) {
+        app->speedIndex = (app->speedIndex+1)%4;
+        return false;
     }
     if (IsKeyPressed(KEY_SPACE) || (clicked && over(mouse, startButton))) {
         if (start_wave(g)) app->noticeTime = 0;
@@ -269,12 +285,13 @@ static void draw_hud(const App *app, Vector2 mouse)
     button(pauseButton, "JEDA", true, false, mouse);
 
     panel((Rectangle){ 494, 60, 136, 266 }, METAL);
-    label("PELETON", 502, 71, 10, CREAM);
+    label(TextFormat("PELETON   %d/%d", g->towerCount, MAX_TOWERS), 502, 71, 10, CREAM);
     for (int kind = 0; kind < TOWER_KIND_COUNT; kind++) {
         Rectangle card = shop_card(kind);
         int y = (int)card.y;
         bool active = app->placing == kind;
-        bool hover = over(mouse, card);
+        bool full = g->towerCount >= MAX_TOWERS;
+        bool hover = !full && over(mouse, card);
         DrawRectangleRec(card, active ? (Color){ 82, 79, 46, 255 } :
             hover ? (Color){ 60, 73, 54, 255 } : (Color){ 47, 58, 46, 255 });
         DrawRectangleLines(500, y, 124, 28, active ? AMBER : RIM);
@@ -284,7 +301,7 @@ static void draw_hud(const App *app, Vector2 mouse)
         draw_tower(&icon, app->reducedMotion ? 0 : g->time, WHITE);
         const TowerSpec *spec = &tower_specs[kind];
         label(spec->name, 540, y+4, 10, CREAM);
-        label(TextFormat("%d dana", spec->price), 540, y+15, 10, g->money >= spec->price ? AMBER : ALERT_RED);
+        label(g->towerCount == MAX_TOWERS ? "Slot penuh" : TextFormat("%d dana", spec->price), 540, y+15, 10, full ? MUTED : g->money >= spec->price ? AMBER : ALERT_RED);
         label(TextFormat("[%d]", kind+1), 602, y+15, 10, MUTED);
     }
     DrawRectangle(501, 181, 122, 1, RIM);
@@ -302,23 +319,31 @@ static void draw_hud(const App *app, Vector2 mouse)
             button(upgradeButton, price ? TextFormat("UPGRADE %d", price) : "LEVEL MAKS",
                    price > 0 && g->money >= price && can_manage(g), false, mouse);
             button(sellButton, TextFormat("JUAL +%d", sale_value(t)), can_manage(g), false, mouse);
+        } else if (app->placing == SNIPER) {
+            label("Prioritas: zirah", 503, 246, 10, MUTED);
         } else if (spec->splash) {
             label(TextFormat("Radius ledakan %d", spec->splash), 503, 246, 10, MUTED);
         }
     } else {
-        label(TextFormat("Peleton aktif %02d/%02d", g->towerCount, MAX_TOWERS), 503, 190, 10, CREAM);
+        if (g->wave == 6) label("Sniper tembus zirah.", 503, 190, 10, AMBER);
+        else if (g->wave == 9) label("Awas Pendobrak.", 503, 190, 10, AMBER);
         label("Pilih kartu untuk", 503, 216, 10, MUTED);
         label("membeli. Klik peleton", 503, 230, 10, MUTED);
         label("untuk mengelolanya.", 503, 244, 10, MUTED);
     }
-    button(startButton, g->state == PREPARE ? "MULAI WAVE" : "WAVE AKTIF",
-           g->state == PREPARE, true, mouse);
+    const char *action = fighting(g->state) ? TextFormat("LAJU %dx   [F]", speeds[app->speedIndex]) :
+                         g->state == PREPARE ? "MULAI WAVE" : "SIAGA";
+    button(startButton, action, g->state == PREPARE || fighting(g->state), true, mouse);
 
     DrawRectangle(13, 335, 613, 1, RIM);
     if (app->noticeTime > 0) {
         label(app->notice, 15, 343, 10, CREAM);
     } else if (app->placing >= 0) {
         label(TextFormat("Klik di peta untuk menempatkan %s.", tower_specs[app->placing].name), 15, 343, 10, AMBER);
+    } else if (g->state == PREPARE && g->wave == 6) {
+        label("Operator: Ada yang pakai rompi. Tempatkan Sniper.", 15, 343, 10, AMBER);
+    } else if (g->state == PREPARE && g->wave == 9) {
+        label("Pendobrak berlari setelah belokan terakhir.", 15, 343, 10, AMBER);
     } else if (g->lastBonus) {
         label(TextFormat("Bonus wave +%d dana%s", g->lastBonus, g->lastHeal ? "  /  Shelter +1 HP" : ""),
               15, 343, 10, MINT);
@@ -329,7 +354,7 @@ static void draw_hud(const App *app, Vector2 mouse)
     } else {
         label("1-3 Pilih peleton   /   Klik kanan Batal", 15, 343, 10, MUTED);
     }
-    label("F11 Layar penuh", 541, 343, 10, MUTED);
+    label("F11 Layar penuh", 626-MeasureText("F11 Layar penuh",10), 343, 10, MUTED);
 }
 
 static void draw_placement(const App *app, Vector2 mouse)
@@ -373,11 +398,8 @@ static void draw_overlay(const App *app, Vector2 mouse)
         app->game.state == WON ? TextFormat("Sisa HP %02d   /   Bonus +%d", app->game.hp, app->game.lastBonus) :
         TextFormat("Gerbang jebol di wave %02d.", app->game.wave);
     label(summary, 223, 155, 10, MUTED);
-    if (!app->paused) {
-        label(app->game.state == WON ? "Operator: Shelter aman." : "Operator: Siapkan ulang.", 223, 168, 10, CREAM);
-        draw_portrait(375, 127);
-    }
-    button(resumeButton, app->paused ? "LANJUTKAN" : "COBA LAGI  [ENTER]", true, true, mouse);
+
+    button(resumeButton, app->paused ? "LANJUTKAN" : app->game.state == WON ? "MAIN LAGI  [ENTER]" : "COBA LAGI  [ENTER]", true, true, mouse);
     if (app->paused) {
         button(pauseSettingsButton, "PENGATURAN", true, false, mouse);
         button(pauseMenuButton, "MENU UTAMA", true, false, mouse);
@@ -410,7 +432,7 @@ static void draw_settings(const App *app, Vector2 mouse)
 static MusicCue current_cue(const App *app)
 {
     if (app->menu) return MUSIC_MENU;
-    if (app->story.playing) return MUSIC_STORY;
+    if (app->story.playing && app->story.kind == OPENING) return MUSIC_STORY;
     switch (app->game.state) {
         case PREPARE:
         case CRISIS_GAP: return MUSIC_PREPARE;
@@ -440,6 +462,37 @@ static Vector2 window_to_canvas(Vector2 cursor, Rectangle destination)
     };
 }
 
+static void step_app(App *app, float dt, float *accumulator)
+{
+    const float fixedStep = 1.0f/60.0f;
+    if (app->story.playing) {
+        *accumulator = 0;
+        tick_story(&app->story, dt);
+    } else if (!app->menu && !app->paused) {
+        app->noticeTime -= dt;
+        RunState before = app->game.state;
+        *accumulator += dt * (fighting(before) ? speeds[app->speedIndex] : 1);
+        while (*accumulator >= fixedStep) {
+            tick_game(&app->game, fixedStep);
+            *accumulator -= fixedStep;
+            if (app->game.state != before) {
+                app->speedIndex = 0;
+                *accumulator = 0;
+                if (app->game.state == WON || app->game.state == LOST)
+                    begin_ending(&app->story, app->game.state == WON);
+                if (app->game.state == PREPARE && app->game.wave == 6) {
+                    notice(app, "Bu Sari: Keluarga dari mobil terakhir sudah masuk.");
+                    app->noticeTime = 3;
+                }
+                break;
+            }
+        }
+    } else {
+        *accumulator = 0;
+        if (app->menu && !app->settings) app->game.time += dt;
+    }
+}
+
 int main(void)
 {
     SetConfigFlags(FLAG_WINDOW_RESIZABLE);
@@ -460,7 +513,7 @@ int main(void)
     new_run(&app);
     app.menu = true;
     float accumulator = 0;
-    const float fixedStep = 1.0f/60.0f;
+
 
     while (!WindowShouldClose()) {
         if (IsKeyPressed(KEY_F11)) ToggleBorderlessWindowed();
@@ -468,23 +521,15 @@ int main(void)
         Vector2 mouse = window_to_canvas(GetMousePosition(), dest);
         if (update_input(&app, mouse)) break;
         float dt = fminf(GetFrameTime(), 0.1f);
-        if (app.story.playing) {
-            accumulator = 0;
-            tick_story(&app.story, dt);
-        } else if (!app.menu && !app.paused) {
-            app.noticeTime -= dt;
-            accumulator += dt;
-            while (accumulator >= fixedStep) {
-                tick_game(&app.game, fixedStep);
-                accumulator -= fixedStep;
-            }
-        } else {
-            accumulator = 0;
-            if (app.menu && !app.settings) app.game.time += dt;
-        }
+        step_app(&app, dt, &accumulator);
         MusicCue cue = current_cue(&app);
         bool warning = cue == MUSIC_CRISIS && app.game.state == CRISIS_WARNING;
-        float seek = app.storyJump ? app.story.scene*STORY_SCENE_SECONDS : -1;
+        if (!app.menu && !app.criticalHeard && app.game.hp > 0 && app.game.hp <= 5) {
+            play_critical_call(&audio, app.musicVolume);
+            app.criticalHeard = true;
+            notice(&app, "Pos medis: Mereka sudah di pintu dalam.");
+        }
+        float seek = app.storyJump ? app.story.scene*story_scene_seconds(&app.story) : -1;
         update_game_audio(&audio, cue, warning, app.paused && !app.menu, app.musicVolume, dt, seek);
         app.storyJump = false;
 
@@ -493,7 +538,7 @@ int main(void)
         Vector2 underlyingMouse = app.settings || app.paused ? (Vector2){ -1, -1 } : mouse;
         if (app.story.playing) {
             draw_story(&app.story, app.reducedMotion);
-            button(skipButton, "SKIP  [ESC]", true, false, mouse);
+            button(skipButton, "LEWATI [ESC]", true, false, mouse);
         } else if (app.menu) {
             draw_menu(&app, underlyingMouse);
         } else {

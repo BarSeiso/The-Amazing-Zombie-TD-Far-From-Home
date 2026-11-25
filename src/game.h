@@ -5,7 +5,7 @@
 
 enum {
     WIDTH = 640, HEIGHT = 360, WAVE_COUNT = 15, MAX_HP = 20, MAX_LEVEL = 3,
-    MAX_TOWERS = 16, MAX_ENEMIES = 40, MAX_FX = 96, PATH_COUNT = 7, MAX_QUEUE = 64
+    MAX_TOWERS = 6, MAX_ENEMIES = 40, MAX_FX = 96, PATH_COUNT = 7, MAX_QUEUE = 64
 };
 
 #define TOWER_RADIUS 10.0f
@@ -17,7 +17,7 @@ extern const Rectangle battlefield;
 extern const Vector2 route[PATH_COUNT];
 
 typedef enum { ARCHER, CANNON, SNIPER, TOWER_KIND_COUNT } TowerKind;
-typedef enum { WALKER, RUNNER, MUTANT, BOSS, ENEMY_KIND_COUNT } EnemyKind;
+typedef enum { WALKER, RUNNER, MUTANT, BOSS, ARMORED, BREACHER, ENEMY_KIND_COUNT } EnemyKind;
 typedef enum { PREPARE, WAVE, CRISIS_GAP, CRISIS_WARNING, CRISIS_WAVE, WON, LOST } RunState;
 typedef enum { DUST, SHOT, EXPLOSION, REWARD, LEAK, UPGRADE } FxKind;
 

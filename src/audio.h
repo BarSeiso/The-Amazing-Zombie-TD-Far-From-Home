@@ -17,13 +17,14 @@ typedef struct {
 
 typedef struct {
     ScoreTrack tracks[MUSIC_COUNT];
-    Sound siren;
+    Sound siren, criticalCall;
     bool warning, paused;
 } GameAudio;
 
 GameAudio load_game_audio(void);
 void update_game_audio(GameAudio *audio, MusicCue cue, bool warning, bool paused,
                        int volume, float dt, float storySeek);
+void play_critical_call(GameAudio *audio, int volume);
 void unload_game_audio(GameAudio *audio);
 
 #endif
