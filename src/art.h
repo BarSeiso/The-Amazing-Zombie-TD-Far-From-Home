@@ -19,6 +19,7 @@ void unload_map_art(void);
 void draw_map(const Game *g, bool reducedMotion);
 void draw_map_preview(Rectangle bounds);
 void draw_tower(const Tower *tower, float time, Color tint);
+void draw_enemy_icon(EnemyKind kind, int x, int y);
 void draw_combat(const Game *g, bool reducedMotion);
 void draw_crisis_warning(const Game *g, bool reducedMotion);
 void draw_portrait(int x, int y);

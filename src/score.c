@@ -8,6 +8,11 @@
 
 #define TAU 6.28318530718f
 
+/*
+ * Synthesizer musik prosedural:
+ * Merakit sinyal audio 22.050 Hz mono 16-bit di memori lalu membungkusnya
+ * dengan header standar file WAV (44 byte) agar dapat diputar oleh Raylib.
+ */
 enum { RATE = 22050, WAV_HEADER = 44 };
 typedef enum { PAD, METALLOPHONE, BASS, DRUM, RIM } Voice;
 typedef struct {
@@ -16,6 +21,7 @@ typedef struct {
     bool looping;
 } Score;
 
+/* Membentuk warna suara (timbre) lima instrumen dari penjumlahan gelombang sinus & peluruhan expf. */
 static float voice_sample(Voice voice, float phase, float t)
 {
     switch (voice) {
@@ -34,6 +40,7 @@ static float voice_sample(Voice voice, float phase, float t)
     return 0;
 }
 
+/* Menambahkan satu nada bernomor MIDI (A4 = MIDI 69 = 440 Hz) ke buffer campuran Score. */
 static void note(Score *s, Voice voice, float start, float duration, int midi, float gain)
 {
     int from = (int)lroundf(start*RATE);
@@ -53,7 +60,7 @@ static void note(Score *s, Voice voice, float start, float duration, int midi, f
     }
 }
 
-// Derau pemancar dengan selubung pendek agar tidak berbunyi klik saat berganti cue.
+/* Derau pemancar radio (Linear Congruential Generator) dengan selubung halus anti-klik. */
 static void radio_noise(Score *s, float start, float duration, float gain)
 {
     unsigned noise=41;
@@ -68,9 +75,10 @@ static void radio_noise(Score *s, float start, float duration, float gain)
     }
 }
 
+/* Menyusun komposisi musik per birama berdasarkan suasana (Menu, Cerita, Persiapan, Wave, Krisis). */
 static void arrange(Score *s, MusicCue cue, int bars, float beat)
 {
-    // Four-note D-F-G-A signature with different answers over a D minor progression.
+    /* Motif empat nada D-F-G-A di atas progresi akor D minor. */
     static const int chords[][4] = {
         {50, 57, 60, 65}, {46, 53, 57, 62}, {41, 53, 57, 60}, {48, 55, 58, 62}
     };
@@ -146,6 +154,7 @@ static void arrange(Score *s, MusicCue cue, int bars, float beat)
     }
 }
 
+/* Menulis bilangan 16-bit & 32-bit dalam urutan byte little-endian sesuai spesifikasi RIFF WAV. */
 static void le16(unsigned char *dst, unsigned value)
 {
     dst[0] = (unsigned char)value;
@@ -188,6 +197,8 @@ unsigned char *render_score(MusicCue cue, int *size)
         radio_noise(&mix,6.3f,.4f,.07f);
         for (int i=0;i<3;i++) note(&mix,BASS,8.2f+i,1.1f,28-i,.19f);
     } else arrange(&mix, cue, measures[cue], beat);
+
+    /* Penyusunan 44-byte header WAV PCM (RIFF, fmt chunk, data chunk). */
     memcpy(wav, "RIFF", 4);
     le32(wav+4, *size-8);
     memcpy(wav+8, "WAVEfmt ", 8);
@@ -203,7 +214,7 @@ unsigned char *render_score(MusicCue cue, int *size)
     for (int i = 0; i < mix.frames; i++) {
         float s = mix.samples[i];
         if (!mix.looping) s *= fminf(1, (mix.frames-1-i)/(RATE*.22f));
-        // A soft ceiling keeps accents audible without clipping stacked voices.
+        /* Soft clipper mencegah sinyal pecah (clipping) ketika banyak instrumen berbunyi bersamaan. */
         s /= 1+.38f*fabsf(s);
         le16(wav+WAV_HEADER+i*2, (uint16_t)(int16_t)lroundf(s*28500));
     }

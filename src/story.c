@@ -13,6 +13,7 @@ static void block(int x, int y, int w, int h, Color color)
     DrawRectangle(x, y, w, h, color);
 }
 
+/* Adegan pembuka 1: planet Bumi tahun 2042 yang digambar dengan rasterisasi lingkaran 3x3 piksel. */
 static void earth(float t)
 {
     block(24, 20, 592, 245, (Color){14, 22, 28, 255});
@@ -38,13 +39,13 @@ static void earth(float t)
             if (x*x+y*y > radius*radius) continue;
             bool terrain = false;
             for (unsigned i = 0; i < sizeof land/sizeof land[0]; i++) {
-                if (CheckCollisionPointRec((Vector2){x,y}, land[i])) { terrain = true; break; }
+                if (CheckCollisionPointRec((Vector2){(float)x,(float)y}, land[i])) { terrain = true; break; }
             }
             Color c = terrain ? (Color){ 105, 139, 102, 255 } : (Color){ 53, 99, 115, 255 };
             unsigned grain = (unsigned)(x*7417+y*7777)*2654435761u;
             if (grain%9 == 0) c = ColorBrightness(c, .07f);
             for (unsigned i = 0; i < sizeof clouds/sizeof clouds[0]; i++) {
-                if (CheckCollisionPointRec((Vector2){x,y}, clouds[i])) {
+                if (CheckCollisionPointRec((Vector2){(float)x,(float)y}, clouds[i])) {
                     c = ColorLerp(c, CREAM, .45f);
                     break;
                 }
@@ -79,6 +80,7 @@ static void skyline(int base, int offset, Color color, bool damaged)
     }
 }
 
+/* Adegan pembuka 2: jaringan penyebaran wabah antarkota di atas siluet gedung. */
 static void outbreak(float t)
 {
     for (int i = 0; i < 11; i++) block(24, 20+i*22, 592, 23, ColorLerp(navy, steel, .07f*i));
@@ -98,6 +100,7 @@ static void outbreak(float t)
     label("SINYAL DARURAT", 42, 41, 10, AMBER);
 }
 
+/* Adegan pembuka 3: kota yang rusak dan ditinggalkan setelah gelombang pertama. */
 static void ruins(float t)
 {
     block(24, 20, 592, 245, navy);
@@ -131,6 +134,7 @@ static void survivor(int x, int y, bool step, Color coat)
     block(x+10, y+17, 4, 7+(step ? 0 : 2), coal);
 }
 
+/* Adegan pembuka 4: rombongan penyintas tiba di gerbang Shelter Indonesia. */
 static void refuge(float t)
 {
     block(24, 20, 592, 245, (Color){ 101, 118, 104, 255 });
@@ -185,7 +189,7 @@ static void refuge(float t)
     }
 }
 
-// Meja pendataan yang sama muncul saat Sari datang dan di akhir permainan.
+/* Meja pendataan Bu Sari yang muncul konsisten di pembuka maupun kedua cabang ending. */
 static void desk(int x, int y, bool fallen, int names)
 {
     block(x, y, 122, 7, ochre);
@@ -201,6 +205,7 @@ static void desk(int x, int y, bool fallen, int names)
     DrawLine(rx+19,ry,rx+(fallen ? 34 : 22),ry-(fallen ? 5 : 18),steel);
 }
 
+/* Tiga adegan penutup: EVACUATED (pagi selamat) atau OVERRUN (gerbang jebol & warga terinfeksi). */
 static void ending_scene(const Story *s, float t)
 {
     bool lost = s->kind == OVERRUN;
@@ -264,6 +269,7 @@ static void ending_scene(const Story *s, float t)
     }
 }
 
+/* Adegan pembuka 5: pengarahan Operator Shelter dengan peta taktis rute pertahanan. */
 static void command(float t, bool reduced)
 {
     block(24, 20, 592, 245, navy);
@@ -369,8 +375,15 @@ void draw_story(const Story *story, bool reduced)
     panel((Rectangle){ 24, 276, 592, 62 }, METAL);
     const Caption *caption = story->kind == OPENING ? &scenes[story->scene] :
         &endings[story->kind == OVERRUN][story->scene];
+    int totalScenes = story->kind == OPENING ? STORY_SCENES : 3;
     label(caption->title, 39, 286, 12, AMBER);
-    label(caption->line1, 39, 305, 10, CREAM);
-    label(caption->line2, 39, 320, 10, CREAM);
-    label(TextFormat("%02d / %02d", story->scene+1, story->kind == OPENING ? STORY_SCENES : 3), 539, 283, 10, MUTED);
+    label(caption->line1, 39, 304, 10, CREAM);
+    label(caption->line2, 39, 318, 10, CREAM);
+    label(TextFormat("%02d / %02d", story->scene+1, totalScenes), 442, 286, 10, MUTED);
+
+    /* Indikator durasi adegan agar pemain tahu kapan adegan berganti otomatis. */
+    float ratio = story->elapsed / story_scene_seconds(story);
+    if (ratio > 1.0f) ratio = 1.0f;
+    block(26, 334, 588, 2, INK);
+    block(26, 334, (int)(588 * ratio), 2, AMBER);
 }

@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>The Amazing Zombie TD — Far From Home (Pos Komando Web)</title>
+  <meta name="description" content="Pertahankan Shelter Indonesia tahun 2042 dari serbuan zombie — dimainkan langsung di browser (C99 + Raylib + WebAssembly).">
+  <meta name="theme-color" content="#101613">
+  <style>
+    :root {
+      --ink: #101613;
+      --bg: #0a0e0c;
+      --metal: #263028;
+      --rim: #637052;
+      --cream: #ebe4c9;
+      --muted: #acb79b;
+      --amber: #ebb157;
+      --mint: #8ccc9d;
+      --red: #f67f70;
+    }
+
+    * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--cream);
+      font-family: "Consolas", "Courier New", monospace;
+    }
+
+    #stage {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      background: var(--bg);
+    }
+
+    /* Kanvas tidak boleh diberi border atau padding agar koordinat mouse/sentuh tetap 1:1 */
+    canvas.emscripten {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      border: 0;
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+      touch-action: none;
+      outline: none;
+    }
+
+    #fs-floating {
+      position: fixed;
+      right: 10px;
+      bottom: 10px;
+      z-index: 15;
+      padding: 5px 10px;
+      font: 700 11px/1 "Consolas", monospace;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      background: rgba(16, 22, 19, 0.78);
+      border: 1px solid var(--rim);
+      cursor: pointer;
+      opacity: 0.55;
+      transition: opacity 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+    }
+    #fs-floating:hover {
+      opacity: 1;
+      color: var(--cream);
+      border-color: var(--amber);
+    }
+
+    #rotate-hint {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 25;
+      padding: 7px 12px;
+      text-align: center;
+      font-size: 11px;
+      background: rgba(38, 48, 40, 0.95);
+      border-bottom: 1px solid var(--amber);
+      color: var(--amber);
+    }
+    @media (max-width: 760px) and (orientation: portrait) {
+      #rotate-hint { display: block; }
+    }
+
+    #gate {
+      position: fixed;
+      inset: 0;
+      z-index: 30;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+      background:
+        repeating-linear-gradient(0deg, rgba(10,14,12,0.88) 0px, rgba(10,14,12,0.88) 3px, rgba(16,22,19,0.92) 4px),
+        radial-gradient(circle at center, rgba(38,48,40,0.55), rgba(10,14,12,0.95));
+      transition: opacity 0.25s ease;
+    }
+    #gate.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .card {
+      width: min(460px, 100%);
+      background: var(--metal);
+      border: 1px solid var(--rim);
+      box-shadow: 4px 5px 0 var(--ink);
+      padding: 22px 24px;
+      position: relative;
+    }
+    .card::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 4px;
+      background: var(--amber);
+    }
+
+    .tag {
+      font-size: 11px;
+      letter-spacing: 0.14em;
+      color: var(--amber);
+      margin-bottom: 8px;
+    }
+    .title {
+      font-size: clamp(20px, 4vw, 27px);
+      font-weight: 700;
+      margin: 0 0 4px 0;
+      letter-spacing: 0.04em;
+      color: var(--cream);
+    }
+    .subtitle {
+      font-size: 13px;
+      color: var(--amber);
+      margin: 0 0 14px 0;
+      letter-spacing: 0.08em;
+    }
+    .divider {
+      height: 1px;
+      background: var(--rim);
+      margin: 14px 0;
+    }
+    .desc {
+      font-size: 12px;
+      line-height: 1.55;
+      color: var(--muted);
+      margin: 0 0 16px 0;
+    }
+
+    .progress-wrap {
+      width: 100%;
+      height: 8px;
+      background: var(--ink);
+      border: 1px solid var(--rim);
+      margin-bottom: 10px;
+      overflow: hidden;
+    }
+    #progress-bar {
+      height: 100%;
+      width: 12%;
+      background: var(--amber);
+      transition: width 0.2s ease;
+    }
+    #status-text {
+      font-size: 11px;
+      color: var(--muted);
+      margin-bottom: 14px;
+      min-height: 15px;
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .btn {
+      flex: 1 1 180px;
+      padding: 11px 14px;
+      font: 700 12px/1.2 "Consolas", "Courier New", monospace;
+      letter-spacing: 0.06em;
+      border: 1px solid var(--rim);
+      box-shadow: 0 2px 0 var(--ink);
+      cursor: pointer;
+      text-align: center;
+    }
+    .btn-primary {
+      background: var(--amber);
+      color: var(--ink);
+      border-color: var(--cream);
+    }
+    .btn-primary:hover:not(:disabled) { background: #fbcf74; }
+    .btn-primary:disabled {
+      background: var(--ink);
+      color: var(--muted);
+      border-color: var(--rim);
+      cursor: wait;
+    }
+    .btn-secondary {
+      flex: 0 1 auto;
+      background: var(--ink);
+      color: var(--cream);
+    }
+    .btn-secondary:hover { border-color: var(--cream); }
+  </style>
+</head>
+<body>
+  <div id="rotate-hint">Putar HP ke posisi mendatar (Landscape) agar peta pertahanan terlihat maksimal.</div>
+
+  <div id="stage">
+    <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+    <button id="fs-floating" type="button" title="Layar Penuh">LAYAR PENUH</button>
+
+    <div id="gate">
+      <div class="card">
+        <div class="tag">SHELTER INDONESIA // SEKTOR 07 // 2042</div>
+        <h1 class="title">THE AMAZING ZOMBIE TD</h1>
+        <div class="subtitle">FAR FROM HOME — EDISI WEB</div>
+        <div class="divider"></div>
+        <p class="desc">
+          Pertahankan gerbang shelter selama 15 gelombang dengan Archer, Cannon, dan Sniper.
+          Mendukung penuh mouse/keyboard laptop maupun layar sentuh HP.
+        </p>
+        <div class="progress-wrap"><div id="progress-bar"></div></div>
+        <div id="status-text">Menghubungkan ke sistem Pos Komando...</div>
+        <div class="actions">
+          <button id="enter-btn" class="btn btn-primary" type="button" disabled>MEMUAT MODUL WASM...</button>
+          <button id="enter-fs-btn" class="btn btn-secondary" type="button" hidden> + LAYAR PENUH</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function() {
+      var audioContexts = [];
+      var OrigAudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (OrigAudioCtx) {
+        var Wrapped = new Proxy(OrigAudioCtx, {
+          construct: function(target, args) {
+            var ctx = new target(...args);
+            audioContexts.push(ctx);
+            return ctx;
+          }
+        });
+        window.AudioContext = Wrapped;
+        if (window.webkitAudioContext) window.webkitAudioContext = Wrapped;
+      }
+
+      var gate = document.getElementById("gate");
+      var enterBtn = document.getElementById("enter-btn");
+      var enterFsBtn = document.getElementById("enter-fs-btn");
+      var fsFloating = document.getElementById("fs-floating");
+      var statusText = document.getElementById("status-text");
+      var progressBar = document.getElementById("progress-bar");
+      var canvasEl = document.getElementById("canvas");
+      var wasmReady = false;
+
+      function resumeAllAudio() {
+        for (var i = 0; i < audioContexts.length; i++) {
+          if (audioContexts[i] && audioContexts[i].state === "suspended") {
+            audioContexts[i].resume().catch(function() {});
+          }
+        }
+      }
+
+      function toggleFullscreen() {
+        var root = document.getElementById("stage") || document.documentElement;
+        if (!document.fullscreenElement) {
+          if (root.requestFullscreen) root.requestFullscreen().catch(function() {});
+        } else if (document.exitFullscreen) {
+          document.exitFullscreen().catch(function() {});
+        }
+      }
+
+      function launchCommandPost(withFullscreen) {
+        if (!wasmReady) return;
+        enterBtn.disabled = true;
+        enterBtn.textContent = "MENYUSUN AUDIO PROSEDURAL...";
+        statusText.textContent = "Menyiapkan 7 jalur musik & efek suara Pos Komando...";
+        if (withFullscreen) toggleFullscreen();
+        setTimeout(function() {
+          try {
+            if (Module && Module._web_unlock_audio) Module._web_unlock_audio();
+          } catch (e) {
+            console.error(e);
+          }
+          resumeAllAudio();
+          gate.classList.add("hidden");
+          canvasEl.focus();
+        }, 20);
+      }
+
+      enterBtn.addEventListener("click", function() { launchCommandPost(false); });
+      enterFsBtn.addEventListener("click", function() { launchCommandPost(true); });
+      fsFloating.addEventListener("click", function() {
+        resumeAllAudio();
+        toggleFullscreen();
+        canvasEl.focus();
+      });
+
+      window.Module = {
+        canvas: canvasEl,
+        totalDependencies: 0,
+        setStatus: function(text) {
+          if (!text) {
+            progressBar.style.width = "100%";
+            if (wasmReady) statusText.textContent = "Sistem siap. Klik tombol di bawah untuk memulai.";
+            return;
+          }
+          var m = text.match(/([^(]+)\((\d+(\.\d+)?)\/(\d+)\)/);
+          if (m) {
+            var pct = Math.min(100, Math.round((parseFloat(m[2]) / parseFloat(m[4])) * 100));
+            progressBar.style.width = pct + "%";
+            statusText.textContent = "Mengunduh modul WebAssembly (" + pct + "%)...";
+          } else {
+            statusText.textContent = text;
+          }
+        },
+        monitorRunDependencies: function(left) {
+          this.totalDependencies = Math.max(this.totalDependencies, left);
+          if (left > 0) {
+            var done = this.totalDependencies - left;
+            var pct = Math.round((done / this.totalDependencies) * 100);
+            progressBar.style.width = pct + "%";
+          }
+        },
+        onRuntimeInitialized: function() {
+          wasmReady = true;
+          progressBar.style.width = "100%";
+          statusText.textContent = "Pos Komando siap. Klik untuk mengaktifkan audio & masuk ke operasi.";
+          enterBtn.disabled = false;
+          enterBtn.textContent = "BUKA POS KOMANDO";
+          enterFsBtn.hidden = false;
+        }
+      };
+
+      window.onerror = function() {
+        statusText.textContent = "Terjadi kendala saat memuat modul browser (periksa konsol).";
+      };
+    })();
+  </script>
+  {{{ SCRIPT }}}
+</body>
+</html>

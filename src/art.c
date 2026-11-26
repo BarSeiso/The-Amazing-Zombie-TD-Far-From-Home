@@ -6,6 +6,8 @@ static const Color olive = { 60, 72, 48, 255 };
 static const Color deep = { 44, 56, 40, 255 };
 static const Color dirt = { 114, 104, 72, 255 };
 static const Color shadow = { 25, 33, 26, 160 };
+
+/* Tekstur kanvas statis peta yang digambar satu kali saat startup (baked background). */
 static RenderTexture2D mapPlate;
 
 void label(const char *s, int x, int y, int size, Color color)
@@ -13,6 +15,7 @@ void label(const char *s, int x, int y, int size, Color color)
     DrawText(s, x, y, size, color);
 }
 
+/* Menggambar kotak panel bergaya perangkat militer retro lengkap dengan bayangan dan garis tepi. */
 void panel(Rectangle r, Color fill)
 {
     int x = (int)r.x, y = (int)r.y, w = (int)r.width, h = (int)r.height;
@@ -61,6 +64,10 @@ static void shelter(void)
     screw(362, 315); screw(414, 315);
 }
 
+/*
+ * Menggambar seluruh permukaan tanah, rumput pseudorandom (hash Knuth 2654435761u),
+ * jalur tanah mengikuti array route[], pagar kawat, semak, dan bangunan Shelter.
+ */
 static void draw_terrain(void)
 {
     BeginScissorMode(12, 60, 474, 266);
@@ -135,6 +142,7 @@ void unload_map_art(void)
 void draw_map_preview(Rectangle bounds)
 {
     if (mapPlate.id) {
+        /* Tinggi negatif (-HEIGHT) membalik sumbu Y tekstur OpenGL agar orientasi gambar benar. */
         DrawTexturePro(mapPlate.texture, (Rectangle){ 0, 0, WIDTH, -HEIGHT },
                        bounds, (Vector2){0,0}, 0, WHITE);
     }
@@ -161,6 +169,10 @@ void draw_map(const Game *g, bool reduced)
     }
 }
 
+/*
+ * Menggambar sprite pixel-art dari matriks string ASCII:
+ * karakter '.' diabaikan (transparan), angka '0'..'9' mengambil indeks dari array colors[].
+ */
 static void pixel_sprite(const char *const rows[], int w, int h, int x, int y,
                          int facing, int scale, const Color colors[], Color tint)
 {
@@ -226,36 +238,49 @@ void draw_tower(const Tower *t, float time, Color tint)
     };
     int x = (int)roundf(t->pos.x), y = (int)roundf(t->pos.y);
     int crouch = t->reload <= .27f ? 2 : 0;
+    float alpha = tint.a/255.0f;
     if (t->kind == ARCHER) {
         archer(t->pos, t->facing, t->recoil, time, tint);
     } else if (t->kind == CANNON) {
         int kick = t->recoil > .21f ? 3*t->facing : 0;
-        DrawEllipse(x, y, 10, 4, Fade(shadow, tint.a/255.0f));
+        DrawEllipse(x, y, 10, 4, Fade(shadow, alpha));
         pixel_sprite(cannon, 19, 13, x-9-kick, y-12, t->facing, 1, cannonColors, tint);
         if (t->reload > .25f && t->recoil < .1f) {
-            DrawRectangle(x-3*t->facing, y-5, 2, 2, Fade(AMBER, tint.a*.62f/255));
+            DrawRectangle(x-3*t->facing, y-5, 2, 2, Fade(AMBER, alpha*.62f));
         }
     } else {
         int kick = t->recoil > .16f ? t->facing : 0;
-        DrawEllipse(x, y, 10, 4, Fade(shadow, tint.a/255.0f));
+        DrawEllipse(x, y, 10, 4, Fade(shadow, alpha));
         pixel_sprite(sniper, 20, 13, x-10-kick, y-13+crouch, t->facing, 1, sniperColors, tint);
         if (t->reload > 0 && t->reload <= .27f) {
-            DrawPixel(x+8*t->facing, y-6, Fade(MINT, tint.a/255.0f));
+            DrawPixel(x+8*t->facing, y-6, Fade(MINT, alpha));
         }
     }
+    /* Detail perlengkapan tambahan mulai Level 2 agar peningkatan terlihat langsung di peta. */
+    if (t->level >= 1) {
+        if (t->kind == ARCHER) {
+            DrawRectangle(x-3*t->facing-1, y-12, 4, 1, Fade(CREAM, alpha));
+            DrawRectangle(x-4*t->facing-1, y-8, 2, 4, Fade(MINT, alpha));
+        } else if (t->kind == CANNON) {
+            DrawRectangle(x+4*t->facing-1, y-9, 2, 3, Fade(CREAM, alpha));
+        } else {
+            DrawRectangle(x+2*t->facing-1, y-9+crouch, 3, 2, Fade(MINT, alpha));
+        }
+    }
+    /* Aksen emas elit khusus Level 3 (maksimum). */
     if (t->level == MAX_LEVEL-1) {
         if (t->kind == ARCHER) {
-            DrawRectangle(x-5*t->facing-1, y-9, 3, 6, Fade(AMBER, tint.a/255.0f));
-            DrawPixel(x-5*t->facing, y-10, Fade(CREAM, tint.a/255.0f));
+            DrawRectangle(x-5*t->facing-1, y-9, 3, 6, Fade(AMBER, alpha));
+            DrawPixel(x-5*t->facing, y-10, Fade(CREAM, alpha));
         } else if (t->kind == CANNON) {
-            DrawRectangle(x-4, y-5, 7, 3, Fade(AMBER, tint.a/255.0f));
+            DrawRectangle(x-4, y-5, 7, 3, Fade(AMBER, alpha));
             DrawPixel(x, y-4, INK);
         } else {
-            DrawRectangle(x+3*t->facing-1, y-9+crouch, 4, 2, Fade(AMBER, tint.a/255.0f));
+            DrawRectangle(x+3*t->facing-1, y-9+crouch, 4, 2, Fade(AMBER, alpha));
         }
     }
     for (int rank = 0; rank < t->level; rank++) {
-        DrawRectangle(x-3+4*rank, y+3, 3, 2, Fade(AMBER, tint.a/255.0f));
+        DrawRectangle(x-3+4*rank, y+3, 3, 2, Fade(AMBER, alpha));
     }
 }
 
@@ -313,21 +338,40 @@ static void draw_enemy(const Enemy *z, bool reduced)
     DrawRectangle(x+scale*(1-(step == 3)), y-4*scale, 2*scale, 4*scale+bob, colors[5]);
     pixel_sprite(sprite, w, h, x-w*scale/2, y-(h+3)*scale-bob, face, scale, colors, WHITE);
     if (z->kind == ARMORED) {
-        DrawRectangle(x-5, y-14-bob, 10, 4, RIM);
+        /* Helm baja & rompi pelindung dipertegas dengan kilau tepi agar mudah dikenali di kerumunan. */
+        DrawRectangle(x-6, y-15-bob, 12, 5, RIM);
+        DrawRectangle(x-5, y-14-bob, 10, 1, CREAM);
         DrawRectangle(x-6, y-11-bob, 12, 2, INK);
-        DrawRectangle(x-4, y-8-bob, 8, 5, METAL);
-        DrawRectangle(x-2, y-8-bob, 2, 5, AMBER);
+        DrawRectangle(x-5, y-9-bob, 10, 6, METAL);
+        DrawRectangleLines(x-5, y-9-bob, 10, 6, RIM);
+        DrawRectangle(x-2, y-8-bob, 4, 4, AMBER);
     } else if (z->kind == BREACHER) {
         DrawRectangle(x+face*9-6, y-22-bob, 13, 9, INK);
         DrawRectangle(x+face*9-5, y-21-bob, 11, 6, ALERT_RED);
         DrawRectangle(x+face*9-2, y-21-bob, 3, 6, CREAM);
     }
-    if (z->hp < z->maxHp) {
-        int bar = scale*10;
-        int top = y-(h+3)*scale-4;
-        DrawRectangle(x-bar/2, top, bar, 2, INK);
-        DrawRectangle(x-bar/2+1, top, ((bar-2)*z->hp+z->maxHp-1)/z->maxHp, 1, AMBER);
+    if (z->hp < z->maxHp || z->kind == BOSS) {
+        int bar = z->kind == BOSS ? 26 : scale*10;
+        int height = z->kind == BOSS ? 3 : 2;
+        int top = y-(h+3)*scale-5;
+        Color fill = z->kind == BOSS ? ALERT_RED : z->kind == ARMORED ? CREAM : AMBER;
+        DrawRectangle(x-bar/2, top, bar, height, INK);
+        DrawRectangle(x-bar/2+1, top, ((bar-2)*z->hp+z->maxHp-1)/z->maxHp, height-1, fill);
     }
+}
+
+/* Menggambar ikon statis salah satu jenis musuh menghadap kanan (digunakan pada panel Panduan). */
+void draw_enemy_icon(EnemyKind kind, int x, int y)
+{
+    Enemy sample = {
+        .pos = { (float)x, (float)y },
+        .kind = kind,
+        .hp = 100,
+        .maxHp = 100,
+        .next = PATH_COUNT,
+        .active = true
+    };
+    draw_enemy(&sample, true);
 }
 
 void draw_combat(const Game *g, bool reduced)

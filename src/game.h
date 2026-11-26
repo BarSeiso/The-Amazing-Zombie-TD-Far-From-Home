@@ -3,6 +3,11 @@
 
 #include "raylib.h"
 
+/*
+ * Konstanta utama simulasi permainan.
+ * Seluruh entitas memakai array berukuran tetap (tanpa malloc/free di simulasi)
+ * agar penggunaan memori deterministik dan mudah dipahami pada bahasa C dasar.
+ */
 enum {
     WIDTH = 640, HEIGHT = 360, WAVE_COUNT = 15, MAX_HP = 20, MAX_LEVEL = 3,
     MAX_TOWERS = 6, MAX_ENEMIES = 40, MAX_FX = 96, PATH_COUNT = 7, MAX_QUEUE = 64
@@ -21,6 +26,20 @@ typedef enum { WALKER, RUNNER, MUTANT, BOSS, ARMORED, BREACHER, ENEMY_KIND_COUNT
 typedef enum { PREPARE, WAVE, CRISIS_GAP, CRISIS_WARNING, CRISIS_WAVE, WON, LOST } RunState;
 typedef enum { DUST, SHOT, EXPLOSION, REWARD, LEAK, UPGRADE } FxKind;
 
+/* Mode prioritas bidikan peleton (default 0 = TARGET_FIRST agar perilaku awal terjaga). */
+typedef enum { TARGET_FIRST, TARGET_STRONG, TARGET_CLOSE, TARGET_MODE_COUNT } TargetMode;
+
+/* Bitmask kejadian suara per frame agar game.c tetap bebas dari ketergantungan audio. */
+typedef enum {
+    EV_BOW     = 1 << 0,
+    EV_CANNON  = 1 << 1,
+    EV_SNIPER  = 1 << 2,
+    EV_PLACE   = 1 << 3,
+    EV_UPGRADE = 1 << 4,
+    EV_SELL    = 1 << 5,
+    EV_LEAK    = 1 << 6
+} GameEvent;
+
 typedef struct {
     int damage, range, upgradeCost;
     float reload;
@@ -37,8 +56,9 @@ extern const TowerSpec tower_specs[TOWER_KIND_COUNT];
 typedef struct {
     Vector2 pos;
     float reload, recoil;
-    int facing, level, invested;
+    int facing, level, invested, kills;
     TowerKind kind;
+    TargetMode targetMode;
 } Tower;
 
 typedef struct {
@@ -59,6 +79,9 @@ typedef struct {
 typedef struct {
     RunState state;
     int wave, money, hp, towerCount, lastBonus, lastHeal, crisisWave;
+    int totalKills, totalEarned;
+    bool crisisCleared;
+    unsigned int events;
     int queueLength, queueNext;
     float spawnIn, phaseTime, time;
     EnemyKind queue[MAX_QUEUE];
@@ -69,6 +92,8 @@ typedef struct {
 } Game;
 
 void reset_game(Game *game);
+void preview_wave_counts(int wave, int counts[ENEMY_KIND_COUNT]);
+int remaining_enemies(const Game *game);
 bool start_wave(Game *game);
 bool can_manage(const Game *game);
 bool valid_ground(const Game *game, Vector2 point);
@@ -77,6 +102,7 @@ int tower_at(const Game *game, Vector2 point);
 int sale_value(const Tower *tower);
 bool upgrade_tower(Game *game, int index);
 bool sell_tower(Game *game, int index);
+void cycle_tower_target(Game *game, int index);
 void tick_game(Game *game, float dt);
 
 #endif

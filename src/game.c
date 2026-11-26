@@ -3,18 +3,27 @@
 #include <math.h>
 #include <stddef.h>
 
+/* Area bermain tempat peleton boleh dipasang dan zombie bergerak. */
 const Rectangle battlefield = { 12, 60, 474, 266 };
+
+/* Tujuh titik belok (waypoint) jalur zombie dari kiri atas menuju gerbang shelter. */
 const Vector2 route[PATH_COUNT] = {
     { 13, 106 }, { 137, 106 }, { 137, 255 }, { 275, 255 },
     { 275, 147 }, { 389, 147 }, { 389, 294 }
 };
 
+/* Tabel spesifikasi tiga jenis peleton beserta stat untuk Level 1 sampai Level 3. */
 const TowerSpec tower_specs[TOWER_KIND_COUNT] = {
     [ARCHER] = { "Archer", 55, 0, {{11, 77, 40, .56f}, {15, 84, 65, .49f}, {20, 92, 0, .41f}} },
     [CANNON] = { "Cannon", 100, 24, {{30, 82, 75, 1.35f}, {39, 91, 110, 1.20f}, {52, 100, 0, 1.04f}} },
     [SNIPER] = { "Sniper", 125, 0, {{69, 130, 85, 1.65f}, {90, 145, 130, 1.48f}, {122, 160, 0, 1.30f}} }
 };
 
+/*
+ * Stat dasar tiap tipe musuh:
+ * hp = darah di wave 1, growth = tambahan HP tiap naik wave,
+ * reward = dana saat mati, leak = pengurangan HP shelter jika lolos.
+ */
 static const struct {
     int hp, growth, reward, leak;
     float speed;
@@ -27,6 +36,7 @@ static const struct {
     [BREACHER] = { 165, 21, 10, 5, 28 }
 };
 
+/* Komposisi dasar 15 wave normal (Walker, Runner, Mutant, Boss) dan jeda spawn. */
 static const struct {
     int counts[ENEMY_KIND_COUNT];
     float interval;
@@ -38,17 +48,23 @@ static const struct {
     {{23,20,13,0},.37f},{{24,20,15,0},.35f},{{24,23,17,0},.33f}
 };
 
+/* Empat paket serbuan tambahan untuk Mode Krisis (dua di antaranya memuat Boss). */
 static const int crisis_groups[][ENEMY_KIND_COUNT] = {
     { 8, 17, 4, 0, 5, 5 }, { 13, 6, 10, 0, 8, 4 },
     { 7, 8, 4, 1, 7, 6 }, { 8, 5, 7, 1, 4, 9 }
 };
 
+/* Menghitung jarak kuadrat dua titik (lebih cepat karena menghindari sqrtf saat cek jangkauan). */
 static float distance_squared(Vector2 a, Vector2 b)
 {
     float x = a.x-b.x, y = a.y-b.y;
     return x*x+y*y;
 }
 
+/*
+ * Menghitung jarak kuadrat terdekat dari titik p ke ruas garis jalan a->b
+ * menggunakan proyeksi vektor (dot product) yang dibatasi pada rentang [0, 1].
+ */
 static float segment_distance_squared(Vector2 p, Vector2 a, Vector2 b)
 {
     float x = b.x-a.x, y = b.y-a.y;
@@ -57,24 +73,50 @@ static float segment_distance_squared(Vector2 p, Vector2 a, Vector2 b)
     return distance_squared(p, (Vector2){ a.x+x*along, a.y+y*along });
 }
 
+/* Menyimpan partikel/efek visual ke dalam ring buffer berkapasitas tetap MAX_FX. */
 static void fx(Game *g, FxKind kind, Vector2 from, Vector2 to, float duration, int amount)
 {
     g->effects[g->nextEffect] = (Effect){ kind, from, to, duration, duration, amount };
     g->nextEffect = (g->nextEffect + 1) % MAX_FX;
 }
 
+/* Mengatur ulang seluruh state permainan dan mengundi satu wave Krisis di antara wave 11..15. */
 void reset_game(Game *g)
 {
     *g = (Game){ .state = PREPARE, .wave = 1, .money = 115, .hp = MAX_HP,
                  .crisisWave = GetRandomValue(WAVE_COUNT-4, WAVE_COUNT) };
 }
 
+/* Menghitung komposisi aktual musuh pada nomor wave tertentu (termasuk konversi Zirah & Pendobrak). */
+void preview_wave_counts(int wave, int counts[ENEMY_KIND_COUNT])
+{
+    if (wave < 1) wave = 1;
+    if (wave > WAVE_COUNT) wave = WAVE_COUNT;
+    for (int i = 0; i < ENEMY_KIND_COUNT; i++) counts[i] = waves[wave-1].counts[i];
+    if (wave >= 6) counts[ARMORED] = 1 + (wave-6)/2;
+    if (wave >= 9) counts[BREACHER] = 1 + (wave-9)/2;
+    counts[MUTANT] -= counts[ARMORED] + counts[BREACHER];
+}
+
+/* Menghitung total musuh yang masih harus dihadapi pada gelombang aktif (antrean + hidup di peta). */
+int remaining_enemies(const Game *g)
+{
+    int alive = 0;
+    for (int i = 0; i < MAX_ENEMIES; i++) {
+        if (g->enemies[i].active) alive++;
+    }
+    return (g->queueLength - g->queueNext) + alive;
+}
+
+/*
+ * Menyusun antrean spawn agar tipe-tipe zombie tersebar proporsional sepanjang wave
+ * (weighted round-robin berbasis integer sehingga jenis musuh tidak menumpuk di satu sisi).
+ */
 static void queue_group(Game *g, const int counts[ENEMY_KIND_COUNT])
 {
     g->queueLength = 0;
     g->queueNext = 0;
     g->spawnIn = 0;
-    // Interleave types and space the largest silhouettes across the wave.
     int total = 0;
     for (int k = 0; k < ENEMY_KIND_COUNT; k++) total += counts[k];
     int emitted[ENEMY_KIND_COUNT] = {0};
@@ -100,10 +142,7 @@ bool start_wave(Game *g)
     g->lastBonus = 0;
     g->lastHeal = 0;
     int counts[ENEMY_KIND_COUNT];
-    for (int i = 0; i < ENEMY_KIND_COUNT; i++) counts[i] = waves[g->wave-1].counts[i];
-    if (g->wave >= 6) counts[ARMORED] = 1 + (g->wave-6)/2;
-    if (g->wave >= 9) counts[BREACHER] = 1 + (g->wave-9)/2;
-    counts[MUTANT] -= counts[ARMORED] + counts[BREACHER];
+    preview_wave_counts(g->wave, counts);
     queue_group(g, counts);
     return true;
 }
@@ -113,6 +152,7 @@ bool can_manage(const Game *g)
     return g->state != WON && g->state != LOST;
 }
 
+/* Memvalidasi apakah koordinat p berada di dalam peta dan tidak menabrak shelter, jalan, atau peleton lain. */
 bool valid_ground(const Game *g, Vector2 p)
 {
     if (p.x-TOWER_RADIUS < battlefield.x || p.x+TOWER_RADIUS > battlefield.x+battlefield.width ||
@@ -134,6 +174,7 @@ bool buy_tower(Game *g, TowerKind kind, Vector2 p)
     if (!can_manage(g) || g->money < price || g->towerCount == MAX_TOWERS || !valid_ground(g, p)) return false;
     g->towers[g->towerCount++] = (Tower){ .pos = p, .facing = 1, .kind = kind, .invested = price };
     g->money -= price;
+    g->events |= EV_PLACE;
     fx(g, DUST, p, p, .37f, 0);
     return true;
 }
@@ -162,22 +203,33 @@ bool upgrade_tower(Game *g, int index)
     g->money -= price;
     t->invested += price;
     t->level++;
+    g->events |= EV_UPGRADE;
     fx(g, UPGRADE, t->pos, t->pos, .30f, 0);
     return true;
 }
 
+/* Menjual peleton dengan pengembalian 70% modal lalu menggeser isi array ke kiri agar rapat. */
 bool sell_tower(Game *g, int index)
 {
     if (!can_manage(g) || index < 0 || index >= g->towerCount) return false;
     Tower *t = &g->towers[index];
     int refund = sale_value(t);
     g->money += refund;
+    g->events |= EV_SELL;
     fx(g, DUST, t->pos, t->pos, .37f, 0);
     for (int i = index; i+1 < g->towerCount; i++) g->towers[i] = g->towers[i+1];
     g->towerCount--;
     return true;
 }
 
+void cycle_tower_target(Game *g, int index)
+{
+    if (!can_manage(g) || index < 0 || index >= g->towerCount) return;
+    Tower *t = &g->towers[index];
+    t->targetMode = (TargetMode)((t->targetMode + 1) % TARGET_MODE_COUNT);
+}
+
+/* Mencari slot kosong pada object pool enemies[] untuk memunculkan zombie berikutnya dari antrean. */
 static void spawn_next(Game *g, float dt)
 {
     if (g->queueNext >= g->queueLength) return;
@@ -195,6 +247,7 @@ static void spawn_next(Game *g, float dt)
     }
 }
 
+/* Menggerakkan zombie menyusuri waypoint; Pendobrak (BREACHER) berlari di segmen lurus terakhir. */
 static void move_enemy(Enemy *z, float dt)
 {
     if (z->kind == BREACHER && z->next == PATH_COUNT-1) z->speed = enemies[RUNNER].speed;
@@ -218,16 +271,37 @@ static void move_enemy(Enemy *z, float dt)
     z->stride += dt;
 }
 
-static void hurt_enemy(Game *g, Enemy *target, int damage, TowerKind weapon)
+/* Mengurangi HP musuh (Zirah menahan 40% damage senjata non-Sniper) dan memberi hadiah saat mati. */
+static void hurt_enemy(Game *g, Enemy *target, int damage, Tower *attacker)
 {
-    if (target->kind == ARMORED && weapon != SNIPER) damage = damage*6/10;
+    if (target->kind == ARMORED && attacker->kind != SNIPER) damage = damage*6/10;
     target->hp -= damage;
     target->hit = .12f;
     if (target->hp > 0) return;
     target->active = false;
+    attacker->kills++;
+    g->totalKills++;
     int reward = enemies[target->kind].reward;
     g->money += reward;
+    g->totalEarned += reward;
     fx(g, REWARD, target->pos, target->pos, .69f, reward);
+}
+
+/* Mengevaluasi apakah kandidat z lebih diprioritaskan daripada target saat ini sesuai mode bidik. */
+static bool prefers_target(const Tower *t, const Enemy *current, const Enemy *z, float curDistSq, float zDistSq)
+{
+    if (!current) return true;
+    if (t->kind == SNIPER && t->targetMode == TARGET_FIRST &&
+        (current->kind == ARMORED) != (z->kind == ARMORED)) {
+        return z->kind == ARMORED;
+    }
+    if (t->targetMode == TARGET_STRONG && z->hp != current->hp) {
+        return z->hp > current->hp;
+    }
+    if (t->targetMode == TARGET_CLOSE && fabsf(zDistSq - curDistSq) > 0.01f) {
+        return zDistSq < curDistSq;
+    }
+    return z->walked > current->walked;
 }
 
 static void fire_tower(Game *g, Tower *t)
@@ -235,13 +309,15 @@ static void fire_tower(Game *g, Tower *t)
     const TowerSpec *spec = &tower_specs[t->kind];
     const TowerStats *stats = &spec->levels[t->level];
     Enemy *target = NULL;
+    float bestDistSq = 0;
     for (int i = 0; i < MAX_ENEMIES; i++) {
         Enemy *z = &g->enemies[i];
-        if (!z->active || distance_squared(t->pos, z->pos) > stats->range*stats->range) continue;
-        if (target && t->kind == SNIPER && (target->kind == ARMORED) != (z->kind == ARMORED)) {
-            if (z->kind == ARMORED) target = z;
-        } else if (!target || z->walked > target->walked) {
+        if (!z->active) continue;
+        float distSq = distance_squared(t->pos, z->pos);
+        if (distSq > stats->range*stats->range) continue;
+        if (prefers_target(t, target, z, bestDistSq, distSq)) {
             target = z;
+            bestDistSq = distSq;
         }
     }
     if (!target) return;
@@ -249,25 +325,28 @@ static void fire_tower(Game *g, Tower *t)
     t->facing = target->pos.x < t->pos.x ? -1 : 1;
     t->reload = stats->reload;
     t->recoil = t->kind == CANNON ? .33f : .22f;
+    g->events |= (t->kind == ARCHER ? EV_BOW : t->kind == CANNON ? EV_CANNON : EV_SNIPER);
     Vector2 impact = target->pos;
     Vector2 muzzle = { t->pos.x+t->facing*9, t->pos.y-10 };
     fx(g, SHOT, muzzle, (Vector2){ impact.x, impact.y-7 }, .14f, t->kind);
     if (!spec->splash) {
-        hurt_enemy(g, target, stats->damage, t->kind);
+        hurt_enemy(g, target, stats->damage, t);
         return;
     }
     fx(g, EXPLOSION, impact, impact, .28f, spec->splash);
     for (int i = 0; i < MAX_ENEMIES; i++) {
         Enemy *z = &g->enemies[i];
         if (z->active && distance_squared(z->pos, impact) <= spec->splash*spec->splash)
-            hurt_enemy(g, z, z == target ? stats->damage : stats->damage/2, t->kind);
+            hurt_enemy(g, z, z == target ? stats->damage : stats->damage/2, t);
     }
 }
 
 static void finish_wave(Game *g)
 {
+    if (g->state == CRISIS_WAVE) g->crisisCleared = true;
     g->lastBonus = 20 + (g->wave-1)*3;
     g->money += g->lastBonus;
+    g->totalEarned += g->lastBonus;
     if (g->wave == WAVE_COUNT) {
         g->state = WON;
         return;
@@ -280,6 +359,12 @@ static void finish_wave(Game *g)
     g->state = PREPARE;
 }
 
+/*
+ * Satu langkah simulasi (dipanggil 60 kali per detik waktu simulasi):
+ * 1. Spawn & gerakkan musuh lebih dulu.
+ * 2. Proses tembakan peleton sebelum cek kebocoran (musuh yang tewas tepat di gerbang tidak melukai shelter).
+ * 3. Kurangi HP shelter untuk musuh yang masih hidup di titik akhir dan kelola transisi wave/Krisis.
+ */
 void tick_game(Game *g, float dt)
 {
     g->time += dt;
@@ -327,6 +412,7 @@ void tick_game(Game *g, float dt)
         z->active = false;
         int damage = enemies[z->kind].leak;
         g->hp = g->hp > damage ? g->hp-damage : 0;
+        g->events |= EV_LEAK;
         fx(g, LEAK, z->pos, z->pos, .65f, damage);
     }
     if (g->hp == 0) {

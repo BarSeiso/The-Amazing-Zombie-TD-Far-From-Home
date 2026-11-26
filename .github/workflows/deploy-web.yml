@@ -1,0 +1,53 @@
+name: Deploy Web Game to GitHub Pages
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  build-web:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Emscripten SDK
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 3.1.73
+          actions-cache-folder: emsdk-cache
+
+      - name: Configure WebAssembly build with CMake
+        run: emcmake cmake -S web -B build-web -DCMAKE_BUILD_TYPE=Release
+
+      - name: Compile C99 + Raylib to WebAssembly
+        run: cmake --build build-web --parallel
+
+      - name: Prepare GitHub Pages artifact
+        run: touch build-web/dist/.nojekyll
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: build-web/dist
+
+  deploy-web:
+    needs: build-web
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
