@@ -13,6 +13,50 @@
  * Memakai ulang seluruh modul inti di ../src/ tanpa mengubah src/main.c desktop.
  */
 
+static void web_install_pointer_tracker(void)
+{
+    /*
+     * Membaca koordinat mouse/sentuh langsung dari DOM (getBoundingClientRect)
+     * agar posisi kursor tetap 1:1 meski GLFW Emscripten menyimpan ukuran awal 1280x720
+     * atau saat jendela browser / fullscreen berubah ukuran.
+     */
+    EM_ASM({
+        if (window.__ffhPointerInstalled) return;
+        window.__ffhPointerInstalled = true;
+        window.__ffhHasPtr = 0;
+        window.__ffhPtrX = 0;
+        window.__ffhPtrY = 0;
+        var canvas = document.getElementById("canvas");
+        if (!canvas) return;
+        function updateFromClient(cx, cy) {
+            var r = canvas.getBoundingClientRect();
+            if (r.width <= 0 || r.height <= 0) return;
+            window.__ffhPtrX = (cx - r.left) / r.width;
+            window.__ffhPtrY = (cy - r.top) / r.height;
+            window.__ffhHasPtr = 1;
+        }
+        window.addEventListener("mousemove", function(e) { updateFromClient(e.clientX, e.clientY); }, { capture: true, passive: true });
+        window.addEventListener("mousedown", function(e) { updateFromClient(e.clientX, e.clientY); }, { capture: true, passive: true });
+        window.addEventListener("pointermove", function(e) { updateFromClient(e.clientX, e.clientY); }, { capture: true, passive: true });
+        window.addEventListener("pointerdown", function(e) { updateFromClient(e.clientX, e.clientY); }, { capture: true, passive: true });
+        window.addEventListener("touchstart", function(e) {
+            if (e.touches && e.touches.length > 0) updateFromClient(e.touches[0].clientX, e.touches[0].clientY);
+        }, { capture: true, passive: true });
+        window.addEventListener("touchmove", function(e) {
+            if (e.touches && e.touches.length > 0) updateFromClient(e.touches[0].clientX, e.touches[0].clientY);
+        }, { capture: true, passive: true });
+    });
+}
+
+static Vector2 web_dom_pointer(int screenW, int screenH, Vector2 fallback)
+{
+    int has = EM_ASM_INT({ return window.__ffhHasPtr ? 1 : 0; });
+    if (!has) return fallback;
+    int x = EM_ASM_INT({ return Math.round(window.__ffhPtrX * $0); }, screenW);
+    int y = EM_ASM_INT({ return Math.round(window.__ffhPtrY * $0); }, screenH);
+    return (Vector2){ (float)x, (float)y };
+}
+
 static void web_toggle_fullscreen(void)
 {
     EM_ASM({
@@ -848,19 +892,21 @@ static Vector2 window_to_canvas(Vector2 cursor, Rectangle destination)
     };
 }
 
-static Pointer read_pointer(WebContext *ctx, Rectangle dest, float dt)
+static Pointer read_pointer(WebContext *ctx, Rectangle dest, int screenW, int screenH, float dt)
 {
     Pointer ptr = {0};
     int touches = GetTouchPointCount();
     if (touches > 0) {
-        ptr.pos = window_to_canvas(GetTouchPosition(0), dest);
+        Vector2 screenPos = web_dom_pointer(screenW, screenH, GetTouchPosition(0));
+        ptr.pos = window_to_canvas(screenPos, dest);
         ptr.pressed = !ctx->wasTouching;
         ptr.held = true;
         ptr.isTouch = true;
         ctx->touchGrace = 0.35f;
     } else {
         ctx->touchGrace = fmaxf(0.0f, ctx->touchGrace - dt);
-        ptr.pos = window_to_canvas(GetMousePosition(), dest);
+        Vector2 screenPos = web_dom_pointer(screenW, screenH, GetMousePosition());
+        ptr.pos = window_to_canvas(screenPos, dest);
         if (ctx->touchGrace <= 0.0f) {
             ptr.pressed = IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
             ptr.held = IsMouseButtonDown(MOUSE_BUTTON_LEFT);
@@ -917,8 +963,10 @@ static void web_frame(void *userData)
 
     if (IsKeyPressed(KEY_F11)) web_toggle_fullscreen();
     float dt = fminf(GetFrameTime(), 0.1f);
-    Rectangle dest = viewport(GetScreenWidth(), GetScreenHeight());
-    Pointer ptr = read_pointer(ctx, dest, dt);
+    int screenW = GetScreenWidth();
+    int screenH = GetScreenHeight();
+    Rectangle dest = viewport(screenW, screenH);
+    Pointer ptr = read_pointer(ctx, dest, screenW, screenH, dt);
 
     update_input(app, ptr);
     step_app(app, dt, &ctx->accumulator);
@@ -977,6 +1025,7 @@ int main(void)
     InitWindow(1280, 720, "The Amazing Zombie TD - Far From Home");
     SetWindowMinSize(240, 135);
     SetExitKey(KEY_NULL);
+    web_install_pointer_tracker();
 
     g_ctx.frame = LoadRenderTexture(WIDTH, HEIGHT);
     if (g_ctx.frame.id == 0) {
