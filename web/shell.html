@@ -3,70 +3,101 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-  <title>The Amazing Zombie TD — Far From Home (Pos Komando Web)</title>
-  <meta name="description" content="Pertahankan Shelter Indonesia tahun 2042 dari serbuan zombie — dimainkan langsung di browser (C99 + Raylib + WebAssembly).">
+  <title>The Amazing Zombie TD — Far From Home</title>
+  <meta name="description" content="Pertahankan Shelter Indonesia tahun 2042 dari serbuan zombie — dimainkan langsung di browser PC & HP.">
   <meta name="theme-color" content="#101613">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Zombie TD">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
+  <link rel="apple-touch-icon" href="icon.svg">
   <style>
     :root {
       --ink: #101613;
       --bg: #0a0e0c;
       --metal: #263028;
+      --metal-2: #1c241e;
       --rim: #637052;
       --cream: #ebe4c9;
       --muted: #acb79b;
       --amber: #ebb157;
       --mint: #8ccc9d;
       --red: #f67f70;
+      --ui-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --mono-font: ui-monospace, "SF Mono", "Consolas", "Courier New", monospace;
     }
 
-    * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+    * {
+      box-sizing: border-box;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
 
     html, body {
       margin: 0;
       padding: 0;
       width: 100%;
-      height: 100%;
+      height: 100dvh;
       overflow: hidden;
       background: var(--bg);
       color: var(--cream);
-      font-family: "Consolas", "Courier New", monospace;
+      font-family: var(--ui-font);
     }
 
+    .hidden { display: none !important; }
+    .amber { color: var(--amber); }
+    .mint { color: var(--mint); }
+    .alert { color: var(--red); }
+    .muted { color: var(--muted); }
+    .cream { color: var(--cream); }
+
+    /* ---------------- Mode PC Klasik (Utuh seperti semula, memakai 100dvh) ---------------- */
     #stage {
       position: relative;
       width: 100vw;
-      height: 100vh;
+      height: 100dvh;
       background: var(--bg);
+      overflow: hidden;
     }
 
-    /* Kanvas tidak boleh diberi border atau padding agar koordinat mouse/sentuh tetap 1:1 */
+    #canvas-wrap {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      background: var(--bg);
+      overflow: hidden;
+    }
+
+    /* Kanvas tanpa border/padding agar pemetaan koordinat mouse & sentuh 1:1 */
     canvas.emscripten {
       display: block;
-      width: 100vw;
-      height: 100vh;
+      width: 100% !important;
+      height: 100% !important;
       border: 0;
       margin: 0;
       padding: 0;
       background: var(--bg);
-      image-rendering: pixelated;
-      image-rendering: crisp-edges;
       touch-action: none;
       outline: none;
     }
+
+    #mobile-ui { display: none; }
 
     #fs-floating {
       position: fixed;
       right: 10px;
       bottom: 10px;
       z-index: 15;
-      padding: 5px 10px;
-      font: 700 11px/1 "Consolas", monospace;
+      padding: 6px 11px;
+      font: 700 11px/1 var(--mono-font);
       letter-spacing: 0.06em;
       color: var(--muted);
-      background: rgba(16, 22, 19, 0.78);
+      background: rgba(16, 22, 19, 0.82);
       border: 1px solid var(--rim);
       cursor: pointer;
-      opacity: 0.55;
+      opacity: 0.6;
       transition: opacity 0.15s ease, color 0.15s ease, border-color 0.15s ease;
     }
     #fs-floating:hover {
@@ -75,36 +106,20 @@
       border-color: var(--amber);
     }
 
-    #rotate-hint {
-      display: none;
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      z-index: 25;
-      padding: 7px 12px;
-      text-align: center;
-      font-size: 11px;
-      background: rgba(38, 48, 40, 0.95);
-      border-bottom: 1px solid var(--amber);
-      color: var(--amber);
-    }
-    @media (max-width: 760px) and (orientation: portrait) {
-      #rotate-hint { display: block; }
-    }
-
+    /* ---------------- Gerbang Pos Komando ---------------- */
     #gate {
       position: fixed;
       inset: 0;
-      z-index: 30;
+      z-index: 40;
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 18px;
+      padding: max(14px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
       background:
         repeating-linear-gradient(0deg, rgba(10,14,12,0.88) 0px, rgba(10,14,12,0.88) 3px, rgba(16,22,19,0.92) 4px),
-        radial-gradient(circle at center, rgba(38,48,40,0.55), rgba(10,14,12,0.95));
+        radial-gradient(circle at center, rgba(38,48,40,0.55), rgba(10,14,12,0.96));
       transition: opacity 0.25s ease;
+      overflow-y: auto;
     }
     #gate.hidden {
       opacity: 0;
@@ -116,111 +131,389 @@
       background: var(--metal);
       border: 1px solid var(--rim);
       box-shadow: 4px 5px 0 var(--ink);
-      padding: 22px 24px;
+      padding: 20px 22px;
       position: relative;
+      font-family: var(--mono-font);
     }
     .card::before {
       content: "";
       position: absolute;
-      left: 0;
-      top: 0;
-      bottom: 0;
+      left: 0; top: 0; bottom: 0;
       width: 4px;
       background: var(--amber);
     }
-
-    .tag {
-      font-size: 11px;
-      letter-spacing: 0.14em;
-      color: var(--amber);
-      margin-bottom: 8px;
-    }
-    .title {
-      font-size: clamp(20px, 4vw, 27px);
-      font-weight: 700;
-      margin: 0 0 4px 0;
-      letter-spacing: 0.04em;
-      color: var(--cream);
-    }
-    .subtitle {
-      font-size: 13px;
-      color: var(--amber);
-      margin: 0 0 14px 0;
-      letter-spacing: 0.08em;
-    }
-    .divider {
-      height: 1px;
-      background: var(--rim);
-      margin: 14px 0;
-    }
-    .desc {
+    .tag { font-size: 11px; letter-spacing: 0.12em; color: var(--amber); margin-bottom: 6px; }
+    .title { font-size: clamp(19px, 4vw, 26px); font-weight: 700; margin: 0 0 4px 0; color: var(--cream); }
+    .subtitle { font-size: 12px; color: var(--amber); margin: 0 0 12px 0; letter-spacing: 0.08em; }
+    .divider { height: 1px; background: var(--rim); margin: 12px 0; }
+    .desc { font-family: var(--ui-font); font-size: 13px; line-height: 1.5; color: var(--muted); margin: 0 0 14px 0; }
+    .ios-tip {
+      font-family: var(--ui-font);
       font-size: 12px;
-      line-height: 1.55;
-      color: var(--muted);
-      margin: 0 0 16px 0;
+      line-height: 1.45;
+      color: var(--mint);
+      background: rgba(16, 22, 19, 0.72);
+      border: 1px solid var(--rim);
+      padding: 8px 10px;
+      margin-bottom: 12px;
     }
-
     .progress-wrap {
-      width: 100%;
-      height: 8px;
+      width: 100%; height: 8px;
       background: var(--ink);
       border: 1px solid var(--rim);
-      margin-bottom: 10px;
+      margin-bottom: 8px;
       overflow: hidden;
     }
-    #progress-bar {
-      height: 100%;
-      width: 12%;
-      background: var(--amber);
-      transition: width 0.2s ease;
-    }
-    #status-text {
-      font-size: 11px;
-      color: var(--muted);
-      margin-bottom: 14px;
-      min-height: 15px;
-    }
-
-    .actions {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
+    #progress-bar { height: 100%; width: 12%; background: var(--amber); transition: width 0.2s ease; }
+    #status-text { font-family: var(--ui-font); font-size: 12px; color: var(--muted); margin-bottom: 14px; min-height: 16px; }
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; }
     .btn {
       flex: 1 1 180px;
-      padding: 11px 14px;
-      font: 700 12px/1.2 "Consolas", "Courier New", monospace;
-      letter-spacing: 0.06em;
+      min-height: 44px;
+      padding: 10px 14px;
+      font: 700 13px/1.2 var(--mono-font);
+      letter-spacing: 0.05em;
       border: 1px solid var(--rim);
       box-shadow: 0 2px 0 var(--ink);
       cursor: pointer;
       text-align: center;
     }
-    .btn-primary {
-      background: var(--amber);
-      color: var(--ink);
-      border-color: var(--cream);
-    }
+    .btn-primary { background: var(--amber); color: var(--ink); border-color: var(--cream); }
     .btn-primary:hover:not(:disabled) { background: #fbcf74; }
-    .btn-primary:disabled {
-      background: var(--ink);
-      color: var(--muted);
-      border-color: var(--rim);
-      cursor: wait;
+    .btn-primary:disabled { background: var(--ink); color: var(--muted); border-color: var(--rim); cursor: wait; }
+    .btn-secondary { flex: 0 1 auto; background: var(--ink); color: var(--cream); }
+
+    /* ---------------- Mode Mobile Hybrid HUD (iPhone / Android) ---------------- */
+    body.mobile-mode #stage {
+      display: grid;
+      padding:
+        env(safe-area-inset-top)
+        env(safe-area-inset-right)
+        env(safe-area-inset-bottom)
+        env(safe-area-inset-left);
+      grid-template-rows: auto minmax(0, 1fr) auto auto;
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas:
+        "topbar"
+        "canvas"
+        "banner"
+        "dock";
+      gap: 4px;
     }
-    .btn-secondary {
-      flex: 0 1 auto;
+
+    body.mobile-mode.mobile-land #stage {
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      grid-template-columns: minmax(0, 1fr) clamp(212px, 34vw, 270px);
+      grid-template-areas:
+        "topbar topbar"
+        "canvas dock"
+        "banner dock";
+    }
+
+    body.mobile-mode.m-in-story #stage {
+      grid-template-rows: minmax(0, 1fr) auto;
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas:
+        "canvas"
+        "story";
+    }
+
+    body.mobile-mode #mobile-ui { display: contents; }
+    body.mobile-mode #canvas-wrap { grid-area: canvas; min-width: 0; min-height: 0; }
+
+    body.mobile-mode.m-crisis-warn #canvas-wrap {
+      box-shadow: inset 0 0 0 2px var(--red);
+    }
+
+    .m-topbar {
+      grid-area: topbar;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 5px 8px;
+      background: var(--metal);
+      border-bottom: 1px solid var(--rim);
+      min-height: 40px;
+    }
+
+    .m-stat {
+      display: flex;
+      flex-direction: column;
+      line-height: 1.15;
+    }
+    .m-k { font-size: 9px; letter-spacing: 0.08em; color: var(--muted); font-weight: 700; }
+    .m-v { font: 700 13px/1.15 var(--mono-font); color: var(--cream); }
+    .m-hp-wrap { min-width: 68px; }
+    .m-hp-bar {
+      width: 100%;
+      height: 4px;
       background: var(--ink);
+      border: 1px solid var(--rim);
+      margin-top: 2px;
+      overflow: hidden;
+    }
+    #m-hp-fill { height: 100%; width: 100%; background: var(--mint); transition: width 0.15s ease; }
+
+    .m-top-actions { display: flex; gap: 6px; margin-left: auto; }
+
+    .m-banner {
+      grid-area: banner;
+      padding: 5px 10px;
+      font-size: 12px;
+      font-weight: 600;
+      background: var(--metal-2);
+      border-top: 1px solid var(--rim);
+      border-bottom: 1px solid var(--rim);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .m-banner.tone-alert { color: var(--red); border-color: var(--red); }
+    .m-banner.tone-amber { color: var(--amber); }
+    .m-banner.tone-mint { color: var(--mint); }
+    .m-banner.tone-cream { color: var(--cream); }
+    .m-banner.tone-muted { color: var(--muted); }
+
+    .m-dock {
+      grid-area: dock;
+      background: var(--metal);
+      border-top: 1px solid var(--rim);
+      padding: 6px 8px 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      overflow-y: auto;
+    }
+    body.mobile-mode.mobile-land .m-dock {
+      border-top: 0;
+      border-left: 1px solid var(--rim);
+      padding: 6px;
+      gap: 5px;
+      justify-content: space-between;
+    }
+
+    .m-shop-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 6px;
+    }
+
+    .m-card {
+      min-height: 46px;
+      padding: 6px 4px;
+      background: var(--metal-2);
+      border: 1px solid var(--rim);
+      color: var(--cream);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      cursor: pointer;
+      font-family: var(--ui-font);
+    }
+    .m-card.active {
+      background: #484629;
+      border-color: var(--amber);
+      box-shadow: inset 0 0 0 1px var(--amber);
+    }
+    .m-card.muted { opacity: 0.68; }
+    .m-card-name { font-size: 12px; font-weight: 700; }
+    .m-card-price { font: 700 11px/1 var(--mono-font); }
+
+    .m-intel, .m-inspector {
+      background: var(--metal-2);
+      border: 1px solid var(--rim);
+      padding: 6px 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .m-intel-head, .m-ins-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--amber);
+    }
+    .m-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+    .m-tag {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 6px;
+      background: var(--ink);
+      border: 1px solid var(--rim);
       color: var(--cream);
     }
-    .btn-secondary:hover { border-color: var(--cream); }
+    .m-tag.amber { color: var(--amber); border-color: var(--amber); }
+    .m-tag.alert { color: var(--red); border-color: var(--red); }
+
+    .m-ins-stats {
+      display: flex;
+      justify-content: space-between;
+      gap: 4px;
+      font: 600 11px/1.2 var(--mono-font);
+      color: var(--cream);
+    }
+    .m-ins-btns {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 5px;
+    }
+    .m-ins-btns .m-btn-primary { grid-column: span 2; }
+
+    .m-x {
+      min-width: 28px;
+      min-height: 26px;
+      background: var(--ink);
+      color: var(--cream);
+      border: 1px solid var(--rim);
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .m-btn {
+      min-height: 40px;
+      padding: 6px 10px;
+      font: 700 12px/1.15 var(--ui-font);
+      background: var(--ink);
+      color: var(--cream);
+      border: 1px solid var(--rim);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+    }
+    .m-btn:disabled { opacity: 0.45; cursor: default; }
+    .m-btn-sm { min-height: 34px; padding: 4px 8px; font-size: 11px; }
+    .m-btn-primary { background: var(--amber); color: var(--ink); border-color: var(--cream); }
+    .m-btn-mint { border-color: var(--mint); color: var(--mint); }
+    .m-btn-danger { border-color: var(--red); color: var(--red); }
+    .m-btn-start { width: 100%; min-height: 44px; font-size: 13px; letter-spacing: 0.04em; }
+
+    body.mobile-mode.mobile-land .m-card { min-height: 38px; padding: 4px 2px; }
+    body.mobile-mode.mobile-land .m-btn { min-height: 34px; }
+    body.mobile-mode.mobile-land .m-btn-start { min-height: 38px; }
+
+    .m-progress {
+      width: 100%;
+      height: 6px;
+      background: var(--ink);
+      border: 1px solid var(--rim);
+      overflow: hidden;
+    }
+    .m-progress > div { height: 100%; transition: width 0.12s linear; }
+
+    /* Sinematik Mobile */
+    .m-story {
+      grid-area: story;
+      padding: 6px 8px 8px;
+      background: var(--bg);
+    }
+    .m-story-card {
+      background: var(--metal);
+      border: 1px solid var(--rim);
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .m-story-head { display: flex; justify-content: space-between; font-size: 12px; font-weight: 700; }
+    .m-story-line { margin: 0; font-size: 13px; line-height: 1.4; color: var(--cream); }
+    .m-story-foot { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+    .m-story-prog { flex: 1; }
+    .m-story-btns { display: flex; gap: 6px; }
+
+    /* Modal Mobile (Menu, Pengaturan, Panduan, Jeda, Laporan Akhir) */
+    .m-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 30;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+      background: rgba(10, 14, 12, 0.80);
+    }
+    .m-panel {
+      width: min(390px, 100%);
+      max-height: 100%;
+      overflow-y: auto;
+      background: var(--metal);
+      border: 1px solid var(--rim);
+      box-shadow: 4px 5px 0 var(--ink);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .m-panel-wide { width: min(560px, 100%); }
+    .m-menu-panel { border-left: 4px solid var(--amber); }
+    .m-tag-top { font: 700 10px/1 var(--mono-font); color: var(--amber); letter-spacing: 0.1em; }
+    .m-title { margin: 0; font-size: 20px; line-height: 1.15; color: var(--cream); }
+    .m-sub { font: 700 12px/1 var(--mono-font); color: var(--amber); letter-spacing: 0.08em; }
+    .m-note { margin: 0; font-size: 13px; line-height: 1.45; color: var(--muted); }
+    .m-menu-btns { display: flex; flex-direction: column; gap: 8px; }
+    .m-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .m-best { font-size: 12px; font-weight: 700; text-align: center; padding-top: 2px; }
+
+    .m-modal-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .m-modal-title { font-size: 16px; font-weight: 800; color: var(--cream); }
+    .m-rec { font-size: 11px; font-weight: 800; }
+
+    .m-set-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 8px 10px;
+      background: var(--metal-2);
+      border: 1px solid var(--rim);
+    }
+    .m-set-lbl { font-size: 13px; font-weight: 700; color: var(--cream); }
+    .m-set-sub { font-size: 11px; color: var(--muted); }
+    .m-vol-btns { display: flex; gap: 6px; }
+    .m-vol-btns .m-btn { min-width: 42px; font-size: 15px; }
+
+    .m-guide-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 8px;
+    }
+    .m-guide-item {
+      background: var(--metal-2);
+      border: 1px solid var(--rim);
+      padding: 8px 10px;
+    }
+    .m-guide-title { font-size: 13px; font-weight: 700; margin-bottom: 2px; }
+    .m-guide-stat { font: 600 11px/1.2 var(--mono-font); color: var(--muted); margin-bottom: 3px; }
+    .m-guide-note { font-size: 12px; color: var(--cream); }
+    .m-guide-tip { font-size: 12px; color: var(--mint); line-height: 1.4; }
+
+    .m-report {
+      background: var(--metal-2);
+      border: 1px solid var(--rim);
+      padding: 8px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      font-size: 13px;
+    }
+    .m-report > div { display: flex; justify-content: space-between; gap: 8px; }
+    .m-report span { color: var(--muted); }
   </style>
 </head>
 <body>
-  <div id="rotate-hint">Putar HP ke posisi mendatar (Landscape) agar peta pertahanan terlihat maksimal.</div>
-
   <div id="stage">
-    <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+    <div id="canvas-wrap">
+      <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+    </div>
+
+    <div id="mobile-ui"></div>
     <button id="fs-floating" type="button" title="Layar Penuh">LAYAR PENUH</button>
 
     <div id="gate">
@@ -231,25 +524,28 @@
         <div class="divider"></div>
         <p class="desc">
           Pertahankan gerbang shelter selama 15 gelombang dengan Archer, Cannon, dan Sniper.
-          Mendukung penuh mouse/keyboard laptop maupun layar sentuh HP.
+          Tampilan menyesuaikan otomatis untuk PC maupun HP (Portrait &amp; Landscape).
         </p>
+        <div id="ios-pwa-tip" class="ios-tip hidden">
+          Tips iPhone: Ketuk ikon <b>Bagikan (Share)</b> lalu pilih <b>Tambah ke Layar Utama</b> untuk bermain layar penuh tanpa bar Safari.
+        </div>
         <div class="progress-wrap"><div id="progress-bar"></div></div>
         <div id="status-text">Menghubungkan ke sistem Pos Komando...</div>
         <div class="actions">
           <button id="enter-btn" class="btn btn-primary" type="button" disabled>MEMUAT MODUL WASM...</button>
-          <button id="enter-fs-btn" class="btn btn-secondary" type="button" hidden> + LAYAR PENUH</button>
+          <button id="enter-fs-btn" class="btn btn-secondary" type="button" hidden>+ LAYAR PENUH</button>
         </div>
       </div>
     </div>
   </div>
 
   <script>
-    (function() {
+    (function () {
       var audioContexts = [];
       var OrigAudioCtx = window.AudioContext || window.webkitAudioContext;
       if (OrigAudioCtx) {
         var Wrapped = new Proxy(OrigAudioCtx, {
-          construct: function(target, args) {
+          construct: function (target, args) {
             var ctx = new target(...args);
             audioContexts.push(ctx);
             return ctx;
@@ -259,29 +555,105 @@
         if (window.webkitAudioContext) window.webkitAudioContext = Wrapped;
       }
 
+      var params = new URLSearchParams(window.location.search);
+      var mobileParam = params.get("mobile");
+      var isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+        (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+      var isStandalone = window.navigator.standalone === true ||
+        (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
+      var canFullscreen = !!(document.documentElement.requestFullscreen && !isIOS);
+
+      function detectMobile() {
+        if (mobileParam === "1") return true;
+        if (mobileParam === "0") return false;
+        var coarse = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
+        var smallSide = Math.min(window.innerWidth, window.innerHeight) <= 760;
+        var mobileUA = /iPhone|iPod|Android/i.test(navigator.userAgent);
+        return (coarse && smallSide) || mobileUA;
+      }
+
+      var isMobile = detectMobile();
       var gate = document.getElementById("gate");
       var enterBtn = document.getElementById("enter-btn");
       var enterFsBtn = document.getElementById("enter-fs-btn");
       var fsFloating = document.getElementById("fs-floating");
+      var iosTip = document.getElementById("ios-pwa-tip");
       var statusText = document.getElementById("status-text");
       var progressBar = document.getElementById("progress-bar");
+      var canvasWrap = document.getElementById("canvas-wrap");
       var canvasEl = document.getElementById("canvas");
       var wasmReady = false;
+
+      if (!canFullscreen) {
+        fsFloating.classList.add("hidden");
+      }
+      if (isIOS && !isStandalone) {
+        iosTip.classList.remove("hidden");
+      }
+
+      function applyLayoutClasses() {
+        isMobile = detectMobile();
+        document.body.classList.toggle("mobile-mode", isMobile);
+        document.body.classList.toggle("mobile-land", isMobile && window.innerWidth > window.innerHeight);
+        document.body.classList.toggle("mobile-port", isMobile && window.innerWidth <= window.innerHeight);
+        if (isMobile) {
+          fsFloating.classList.add("hidden");
+        } else if (canFullscreen) {
+          fsFloating.classList.remove("hidden");
+        }
+      }
+
+      function syncViewportBuffer() {
+        applyLayoutClasses();
+        if (!wasmReady || !window.Module) return;
+        if (window.Module._web_set_mobile_mode) {
+          window.Module._web_set_mobile_mode(isMobile ? 1 : 0);
+        }
+        var rect = canvasWrap.getBoundingClientRect();
+        var dpr = Math.min(window.devicePixelRatio || 1, 2);
+        var bw = Math.max(240, Math.round(rect.width * dpr));
+        var bh = Math.max(135, Math.round(rect.height * dpr));
+        if (window.Module._web_sync_viewport) {
+          window.Module._web_sync_viewport(bw, bh);
+        }
+      }
+
+      var resizeTimer = 0;
+      function scheduleSync() {
+        applyLayoutClasses();
+        if (resizeTimer) cancelAnimationFrame(resizeTimer);
+        resizeTimer = requestAnimationFrame(function () {
+          syncViewportBuffer();
+        });
+      }
+
+      applyLayoutClasses();
+      window.addEventListener("resize", scheduleSync);
+      window.addEventListener("orientationchange", function () {
+        setTimeout(scheduleSync, 120);
+      });
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener("resize", scheduleSync);
+      }
+      if (window.ResizeObserver) {
+        new ResizeObserver(scheduleSync).observe(canvasWrap);
+      }
 
       function resumeAllAudio() {
         for (var i = 0; i < audioContexts.length; i++) {
           if (audioContexts[i] && audioContexts[i].state === "suspended") {
-            audioContexts[i].resume().catch(function() {});
+            audioContexts[i].resume().catch(function () {});
           }
         }
       }
 
       function toggleFullscreen() {
+        if (!canFullscreen) return;
         var root = document.getElementById("stage") || document.documentElement;
         if (!document.fullscreenElement) {
-          if (root.requestFullscreen) root.requestFullscreen().catch(function() {});
+          if (root.requestFullscreen) root.requestFullscreen().catch(function () {});
         } else if (document.exitFullscreen) {
-          document.exitFullscreen().catch(function() {});
+          document.exitFullscreen().catch(function () {});
         }
       }
 
@@ -291,21 +663,22 @@
         enterBtn.textContent = "MENYUSUN AUDIO PROSEDURAL...";
         statusText.textContent = "Menyiapkan 7 jalur musik & efek suara Pos Komando...";
         if (withFullscreen) toggleFullscreen();
-        setTimeout(function() {
+        setTimeout(function () {
           try {
-            if (Module && Module._web_unlock_audio) Module._web_unlock_audio();
+            if (window.Module && window.Module._web_unlock_audio) window.Module._web_unlock_audio();
           } catch (e) {
             console.error(e);
           }
           resumeAllAudio();
           gate.classList.add("hidden");
+          syncViewportBuffer();
           canvasEl.focus();
         }, 20);
       }
 
-      enterBtn.addEventListener("click", function() { launchCommandPost(false); });
-      enterFsBtn.addEventListener("click", function() { launchCommandPost(true); });
-      fsFloating.addEventListener("click", function() {
+      enterBtn.addEventListener("click", function () { launchCommandPost(false); });
+      enterFsBtn.addEventListener("click", function () { launchCommandPost(true); });
+      fsFloating.addEventListener("click", function () {
         resumeAllAudio();
         toggleFullscreen();
         canvasEl.focus();
@@ -314,10 +687,10 @@
       window.Module = {
         canvas: canvasEl,
         totalDependencies: 0,
-        setStatus: function(text) {
+        setStatus: function (text) {
           if (!text) {
             progressBar.style.width = "100%";
-            if (wasmReady) statusText.textContent = "Sistem siap. Klik tombol di bawah untuk memulai.";
+            if (wasmReady) statusText.textContent = "Sistem siap. Ketuk tombol di bawah untuk memulai.";
             return;
           }
           var m = text.match(/([^(]+)\((\d+(\.\d+)?)\/(\d+)\)/);
@@ -329,29 +702,30 @@
             statusText.textContent = text;
           }
         },
-        monitorRunDependencies: function(left) {
+        monitorRunDependencies: function (left) {
           this.totalDependencies = Math.max(this.totalDependencies, left);
           if (left > 0) {
             var done = this.totalDependencies - left;
-            var pct = Math.round((done / this.totalDependencies) * 100);
-            progressBar.style.width = pct + "%";
+            progressBar.style.width = Math.round((done / this.totalDependencies) * 100) + "%";
           }
         },
-        onRuntimeInitialized: function() {
+        onRuntimeInitialized: function () {
           wasmReady = true;
           progressBar.style.width = "100%";
-          statusText.textContent = "Pos Komando siap. Klik untuk mengaktifkan audio & masuk ke operasi.";
+          statusText.textContent = "Pos Komando siap. Ketuk untuk mengaktifkan audio & masuk ke operasi.";
           enterBtn.disabled = false;
           enterBtn.textContent = "BUKA POS KOMANDO";
-          enterFsBtn.hidden = false;
+          if (canFullscreen && !isMobile) enterFsBtn.hidden = false;
+          setTimeout(syncViewportBuffer, 0);
         }
       };
 
-      window.onerror = function() {
-        statusText.textContent = "Terjadi kendala saat memuat modul browser (periksa konsol).";
+      window.onerror = function () {
+        statusText.textContent = "Terjadi kendala saat memuat modul browser.";
       };
     })();
   </script>
+  <script src="mobile_ui.js"></script>
   {{{ SCRIPT }}}
 </body>
 </html>

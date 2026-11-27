@@ -1,0 +1,17 @@
+{
+  "name": "The Amazing Zombie TD: Far From Home",
+  "short_name": "Zombie TD 2042",
+  "description": "Pertahankan Shelter Indonesia tahun 2042 dari serbuan zombie.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0a0e0c",
+  "theme_color": "#101613",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

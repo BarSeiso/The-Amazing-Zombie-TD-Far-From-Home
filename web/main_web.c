@@ -11,6 +11,10 @@
 /*
  * Entry point khusus versi Web / Browser (Emscripten + WebAssembly).
  * Memakai ulang seluruh modul inti di ../src/ tanpa mengubah src/main.c desktop.
+ * Mendukung dua mode tampilan:
+ * - PC Mode (mobileMode == false): Kanvas 640x360 klasik dengan HUD Raylib asli.
+ * - Mobile Hybrid Mode (mobileMode == true): Kanvas Retina men-crop area peta/ilustrasi,
+ *   dipadukan dengan HUD HTML/CSS tajam ramah jempol (Portrait & Landscape).
  */
 
 static void web_install_pointer_tracker(void)
@@ -18,7 +22,7 @@ static void web_install_pointer_tracker(void)
     /*
      * Membaca koordinat mouse/sentuh langsung dari DOM (getBoundingClientRect)
      * agar posisi kursor tetap 1:1 meski GLFW Emscripten menyimpan ukuran awal 1280x720
-     * atau saat jendela browser / fullscreen berubah ukuran.
+     * atau saat jendela browser / Retina DPR / fullscreen berubah ukuran.
      */
     EM_ASM({
         if (window.__ffhPointerInstalled) return;
@@ -26,9 +30,9 @@ static void web_install_pointer_tracker(void)
         window.__ffhHasPtr = 0;
         window.__ffhPtrX = 0;
         window.__ffhPtrY = 0;
-        var canvas = document.getElementById("canvas");
-        if (!canvas) return;
         function updateFromClient(cx, cy) {
+            var canvas = document.getElementById("canvas");
+            if (!canvas) return;
             var r = canvas.getBoundingClientRect();
             if (r.width <= 0 || r.height <= 0) return;
             window.__ffhPtrX = (cx - r.left) / r.width;
@@ -91,8 +95,10 @@ typedef struct {
     App app;
     GameAudio audio;
     RenderTexture2D frame;
-    float accumulator, touchGrace;
-    bool audioReady, wasTouching;
+    float accumulator, touchGrace, uiSyncTimer;
+    int targetBufW, targetBufH;
+    int lastFilterMode;
+    bool audioReady, wasTouching, mobileMode, uiDirty;
 } WebContext;
 
 static WebContext g_ctx;
@@ -133,14 +139,6 @@ static const Rectangle settingsBackButton    = { 198, 280, 244, 26 };
 static const Rectangle nextSceneButton       = { 492, 282, 114, 22 };
 static const Rectangle skipButton            = { 492, 308, 114, 22 };
 static const Rectangle helpCloseButton       = { 456,  45, 116, 22 };
-
-/* Dipanggil dari tombol HTML "BUKA POS KOMANDO" untuk membuka izin WebAudio browser. */
-EMSCRIPTEN_KEEPALIVE void web_unlock_audio(void)
-{
-    if (g_ctx.audioReady) return;
-    g_ctx.audio = load_game_audio();
-    g_ctx.audioReady = true;
-}
 
 static void ui_sfx(SfxKind kind)
 {
@@ -243,12 +241,14 @@ static void new_run(App *app)
         .highScore = highScore
     };
     reset_game(&app->game);
+    g_ctx.uiDirty = true;
 }
 
 static void notice(App *app, const char *text)
 {
     app->notice = text;
     app->noticeTime = 2.2f;
+    g_ctx.uiDirty = true;
 }
 
 static void attempt_place(App *app, Vector2 pos)
@@ -267,12 +267,413 @@ static void attempt_place(App *app, Vector2 pos)
     } else {
         notice(app, "Pilih posisi di luar jalur dan peleton lain.");
     }
+    g_ctx.uiDirty = true;
 }
+
+/* ---------------- Bridge Perintah & Sinkronisasi UI Mobile ---------------- */
+
+static void json_escape(char *dst, int cap, const char *src)
+{
+    int o = 0;
+    if (!src) src = "";
+    for (int i = 0; src[i] != '\0' && o + 2 < cap; i++) {
+        char c = src[i];
+        if (c == '"' || c == '\\') {
+            if (o + 3 >= cap) break;
+            dst[o++] = '\\';
+            dst[o++] = c;
+        } else if ((unsigned char)c >= 32) {
+            dst[o++] = c;
+        }
+    }
+    dst[o] = '\0';
+}
+
+static void push_mobile_ui(void)
+{
+    if (!g_ctx.mobileMode) return;
+    const App *app = &g_ctx.app;
+    const Game *g = &app->game;
+
+    const char *screen =
+        app->settings ? "settings" :
+        app->help     ? "help" :
+        app->story.playing ? "story" :
+        app->menu     ? "menu" :
+        (g->state == WON || g->state == LOST) ? "result" :
+        app->paused   ? "pause" : "play";
+
+    const char *stateName =
+        g->state == PREPARE ? "PREPARE" :
+        g->state == WAVE ? "WAVE" :
+        g->state == CRISIS_GAP ? "CRISIS_GAP" :
+        g->state == CRISIS_WARNING ? "CRISIS_WARNING" :
+        g->state == CRISIS_WAVE ? "CRISIS_WAVE" :
+        g->state == WON ? "WON" : "LOST";
+
+    int counts[ENEMY_KIND_COUNT] = {0};
+    preview_wave_counts(g->wave, counts);
+
+    char bannerBuf[160] = "";
+    const char *bannerTone = "muted";
+    if (app->noticeTime > 0 && app->notice) {
+        snprintf(bannerBuf, sizeof bannerBuf, "%s", app->notice);
+        bannerTone = "cream";
+    } else if (g->state == CRISIS_WARNING) {
+        snprintf(bannerBuf, sizeof bannerBuf, "PERINGATAN KRISIS: Gerombolan mutan mendekat!");
+        bannerTone = "alert";
+    } else if (g->state == CRISIS_GAP) {
+        snprintf(bannerBuf, sizeof bannerBuf, "Operator: Radar mendeteksi getaran baru di luar pagar.");
+        bannerTone = "amber";
+    } else if (app->placing >= 0 && app->hasTouchAim) {
+        snprintf(bannerBuf, sizeof bannerBuf, "Geser di peta atau tekan PASANG untuk menaruh unit.");
+        bannerTone = "mint";
+    } else if (app->placing >= 0) {
+        snprintf(bannerBuf, sizeof bannerBuf, "Ketuk titik di peta untuk menempatkan %s.", tower_specs[app->placing].name);
+        bannerTone = "amber";
+    } else if (g->state == PREPARE && g->wave == 6) {
+        snprintf(bannerBuf, sizeof bannerBuf, "Operator: Ada yang pakai rompi. Tempatkan Sniper.");
+        bannerTone = "amber";
+    } else if (g->state == PREPARE && g->wave == 9) {
+        snprintf(bannerBuf, sizeof bannerBuf, "Pendobrak berlari cepat setelah belokan terakhir.");
+        bannerTone = "amber";
+    } else if (g->lastBonus) {
+        snprintf(bannerBuf, sizeof bannerBuf, "Bonus wave +%d dana%s",
+                 g->lastBonus, g->lastHeal ? "  |  Shelter +1 HP" : "");
+        bannerTone = "mint";
+    } else if (g->state == PREPARE && g->wave == 1) {
+        snprintf(bannerBuf, sizeof bannerBuf, "Operator: Pasang peleton di peta, lalu tekan MULAI WAVE.");
+        bannerTone = "cream";
+    } else {
+        snprintf(bannerBuf, sizeof bannerBuf, "Ketuk peleton di peta untuk upgrade, jual, atau ubah target.");
+        bannerTone = "muted";
+    }
+
+    char escBanner[256];
+    json_escape(escBanner, (int)sizeof escBanner, bannerBuf);
+
+    bool aimValid = app->placing >= 0 && app->hasTouchAim &&
+        valid_ground(g, app->touchAim) &&
+        g->money >= tower_specs[app->placing].price &&
+        g->towerCount < MAX_TOWERS;
+
+    char selJson[360] = "null";
+    if (app->selected >= 0 && app->selected < g->towerCount) {
+        const Tower *t = &g->towers[app->selected];
+        const TowerSpec *spec = &tower_specs[t->kind];
+        const TowerStats *st = &spec->levels[t->level];
+        const TowerStats *nx = t->level + 1 < MAX_LEVEL ? &spec->levels[t->level + 1] : NULL;
+        snprintf(selJson, sizeof selJson,
+            "{\"name\":\"%s\",\"level\":%d,\"kills\":%d,\"dmg\":%d,\"range\":%d,\"reload\":%.2f,"
+            "\"nextDmg\":%d,\"nextRange\":%d,\"nextReload\":%.2f,\"upCost\":%d,\"sellVal\":%d,"
+            "\"target\":\"%s\"}",
+            spec->name, t->level + 1, t->kills, st->damage, st->range, st->reload,
+            nx ? nx->damage : st->damage, nx ? nx->range : st->range, nx ? nx->reload : st->reload,
+            st->upgradeCost, sale_value(t), target_names[t->targetMode]);
+    }
+
+    float storyDur = story_scene_seconds(&app->story);
+    float storyPct = storyDur > 0 ? app->story.elapsed / storyDur : 0.0f;
+    if (storyPct > 1.0f) storyPct = 1.0f;
+
+    static char json[2048];
+    snprintf(json, sizeof json,
+        "{"
+        "\"screen\":\"%s\",\"state\":\"%s\",\"fighting\":%s,"
+        "\"wave\":%d,\"waveCount\":%d,\"money\":%d,\"hp\":%d,\"maxHp\":%d,"
+        "\"towers\":%d,\"maxTowers\":%d,\"speed\":%d,"
+        "\"rem\":%d,\"qLen\":%d,\"kills\":%d,\"earned\":%d,"
+        "\"crisisWave\":%d,\"crisisCleared\":%s,\"crisisWarn\":%s,"
+        "\"placing\":%d,\"hasAim\":%s,\"aimValid\":%s,"
+        "\"selected\":%s,"
+        "\"intel\":[%d,%d,%d,%d,%d,%d],"
+        "\"storyKind\":%d,\"storyScene\":%d,\"storyTotal\":%d,\"storyPct\":%.3f,"
+        "\"reduced\":%s,\"music\":%d,\"sfx\":%d,"
+        "\"confirmMenu\":%s,\"score\":%d,\"best\":%d,\"newRec\":%s,\"rank\":\"%s\","
+        "\"banner\":\"%s\",\"tone\":\"%s\""
+        "}",
+        screen, stateName, fighting(g->state) ? "true" : "false",
+        g->wave, WAVE_COUNT, g->money, g->hp, MAX_HP,
+        g->towerCount, MAX_TOWERS, speeds[app->speedIndex],
+        remaining_enemies(g), g->queueLength, g->totalKills, g->totalEarned,
+        g->crisisWave, g->crisisCleared ? "true" : "false",
+        g->state == CRISIS_WARNING ? "true" : "false",
+        app->placing, app->hasTouchAim ? "true" : "false", aimValid ? "true" : "false",
+        selJson,
+        counts[WALKER], counts[RUNNER], counts[MUTANT], counts[BOSS], counts[ARMORED], counts[BREACHER],
+        (int)app->story.kind, app->story.scene, app->story.kind == OPENING ? STORY_SCENES : 3, storyPct,
+        app->reducedMotion ? "true" : "false", app->musicVolume, app->sfxVolume,
+        app->confirmMenu ? "true" : "false", campaign_score(g), app->highScore,
+        app->newRecord ? "true" : "false", commander_rank(g),
+        escBanner, bannerTone
+    );
+
+    EM_ASM({
+        if (window.__ffhUpdateMobileUI) window.__ffhUpdateMobileUI(UTF8ToString($0));
+    }, json);
+    g_ctx.uiDirty = false;
+    g_ctx.uiSyncTimer = 0.0f;
+}
+
+/* Dipanggil dari tombol HTML "BUKA POS KOMANDO" untuk membuka izin WebAudio browser. */
+EMSCRIPTEN_KEEPALIVE void web_unlock_audio(void)
+{
+    if (g_ctx.audioReady) return;
+    g_ctx.audio = load_game_audio();
+    g_ctx.audioReady = true;
+}
+
+EMSCRIPTEN_KEEPALIVE void web_set_mobile_mode(int enabled)
+{
+    bool next = enabled != 0;
+    if (g_ctx.mobileMode != next) {
+        g_ctx.mobileMode = next;
+        g_ctx.lastFilterMode = -1;
+        g_ctx.uiDirty = true;
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE void web_sync_viewport(int bufW, int bufH)
+{
+    if (bufW < 240) bufW = 240;
+    if (bufH < 135) bufH = 135;
+    g_ctx.targetBufW = bufW;
+    g_ctx.targetBufH = bufH;
+    if (IsWindowReady() && (GetScreenWidth() != bufW || GetScreenHeight() != bufH)) {
+        SetWindowSize(bufW, bufH);
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE void web_cmd_play(void)
+{
+    web_unlock_audio();
+    ui_sfx(SFX_CLICK);
+    new_run(&g_ctx.app);
+    begin_story(&g_ctx.app.story);
+    g_ctx.uiDirty = true;
+}
+
+EMSCRIPTEN_KEEPALIVE void web_cmd_story_next(void)
+{
+    if (!g_ctx.app.story.playing) return;
+    advance_story(&g_ctx.app.story);
+    g_ctx.app.storyJump = g_ctx.app.story.playing;
+    ui_sfx(SFX_CLICK);
+    g_ctx.uiDirty = true;
+}
+
+EMSCRIPTEN_KEEPALIVE void web_cmd_story_skip(void)
+{
+    g_ctx.app.story.playing = false;
+    ui_sfx(SFX_CLICK);
+    g_ctx.uiDirty = true;
+}
+
+EMSCRIPTEN_KEEPALIVE void web_cmd_select_shop(int kind)
+{
+    App *app = &g_ctx.app;
+    if (kind < 0 || kind >= TOWER_KIND_COUNT) return;
+    ui_sfx(SFX_CLICK);
+    if (app->game.towerCount >= MAX_TOWERS) {
+        notice(app, "Slot 6/6 penuh. Jual 1 peleton jika ingin mengganti.");
+        return;
+    }
+    app->placing = app->placing == kind ? -1 : kind;
+    app->hasTouchAim = false;
+    app->selected = -1;
+    app->noticeTime = 0;
+    g_ctx.uiDirty = true;
+}
+
+EMSCRIPTEN_KEEPALIVE void web_cmd_place_confirm(void)
+{
+    App *app = &g_ctx.app;
+    if (app->placing >= 0 && app->hasTouchAim) {
+        attempt_place(app, app->touchAim);
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE void web_cmd_place_cancel(void)
+{
+    g_ctx.app.placing = -1;
+    g_ctx.app.hasTouchAim = false;
+    ui_sfx(SFX_CLICK);
+    g_ctx.uiDirty = true;
+}
+
+EMSCRIPTEN_KEEPALIVE void web_cmd_tower_target(void)
+{
+    App *app = &g_ctx.app;
+    if (app->selected < 0) return;
+    cycle_tower_target(&app->game, app->selected);
+    ui_sfx(SFX_CLICK);
+    notice(app, TextFormat("Prioritas bidik: %s.", target_names[app->game.towers[app->selected].targetMode]));
+}
+
+EMSCRIPTEN_KEEPALIVE void web_cmd_tower_upgrade(void)
+{
+    App *app = &g_ctx.app;
+    if (app->selected < 0) return;
+    const Tower *t = &app->game.towers[app->selected];
+    int price = tower_specs[t->kind].levels[t->level].upgradeCost;
+    if (upgrade_tower(&app->game, app->selected)) notice(app, "Upgrade berhasil.");
+    else notice(app, price ? "Dana tidak cukup." : "Peleton sudah level maksimum.");
+}
+
+EMSCRIPTEN_KEEPALIVE void web_cmd_tower_sell(void)
+{
+    App *app = &g_ctx.app;
+    if (app->selected < 0) return;
+    if (sell_tower(&app->game, app->selected)) {
+        app->selected = -1;
+        notice(app, "Peleton dijual.");
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE void web_cmd_tower_deselect(void)
+{
+    g_ctx.app.selected = -1;
+    ui_sfx(SFX_CLICK);
+    g_ctx.uiDirty = true;
+}
+
+EMSCRIPTEN_KEEPALIVE void web_cmd_start_or_speed(void)
+{
+    App *app = &g_ctx.app;
+    if (fighting(app->game.state)) {
+        app->speedIndex = (app->speedIndex + 1) % 4;
+        ui_sfx(SFX_CLICK);
+        g_ctx.uiDirty = true;
+    } else if (start_wave(&app->game)) {
+        app->noticeTime = 0;
+        ui_sfx(SFX_CLICK);
+        g_ctx.uiDirty = true;
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE void web_cmd_toggle_pause(void)
+{
+    App *app = &g_ctx.app;
+    app->paused = !app->paused;
+    app->confirmMenu = false;
+    ui_sfx(SFX_CLICK);
+    g_ctx.uiDirty = true;
+}
+
+EMSCRIPTEN_KEEPALIVE void web_cmd_toggle_help(void)
+{
+    App *app = &g_ctx.app;
+    app->help = !app->help;
+    ui_sfx(SFX_CLICK);
+    g_ctx.uiDirty = true;
+}
+
+EMSCRIPTEN_KEEPALIVE void web_cmd_toggle_settings(void)
+{
+    App *app = &g_ctx.app;
+    app->settings = !app->settings;
+    app->confirmMenu = false;
+    ui_sfx(SFX_CLICK);
+    g_ctx.uiDirty = true;
+}
+
+EMSCRIPTEN_KEEPALIVE void web_cmd_toggle_motion(void)
+{
+    App *app = &g_ctx.app;
+    app->reducedMotion = !app->reducedMotion;
+    save_settings(app);
+    ui_sfx(SFX_CLICK);
+    g_ctx.uiDirty = true;
+}
+
+EMSCRIPTEN_KEEPALIVE void web_cmd_adjust_music(int delta)
+{
+    App *app = &g_ctx.app;
+    int next = app->musicVolume + delta;
+    if (next < 0) next = 0;
+    if (next > 100) next = 100;
+    if (next != app->musicVolume) {
+        app->musicVolume = next;
+        save_settings(app);
+        ui_sfx(SFX_CLICK);
+        g_ctx.uiDirty = true;
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE void web_cmd_adjust_sfx(int delta)
+{
+    App *app = &g_ctx.app;
+    int next = app->sfxVolume + delta;
+    if (next < 0) next = 0;
+    if (next > 100) next = 100;
+    if (next != app->sfxVolume) {
+        app->sfxVolume = next;
+        save_settings(app);
+        ui_sfx(SFX_CLICK);
+        g_ctx.uiDirty = true;
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE void web_cmd_retry(void)
+{
+    ui_sfx(SFX_CLICK);
+    new_run(&g_ctx.app);
+}
+
+EMSCRIPTEN_KEEPALIVE void web_cmd_to_menu(void)
+{
+    App *app = &g_ctx.app;
+    ui_sfx(SFX_CLICK);
+    if (app->paused && !app->confirmMenu) {
+        app->confirmMenu = true;
+    } else {
+        app->paused = false;
+        app->confirmMenu = false;
+        app->settings = false;
+        app->help = false;
+        app->story.playing = false;
+        app->menu = true;
+    }
+    g_ctx.uiDirty = true;
+}
+
+/* ---------------- Input & Rendering ---------------- */
 
 static void update_input(App *app, Pointer ptr)
 {
     bool clicked = ptr.pressed;
     if (clicked && !g_ctx.audioReady) web_unlock_audio();
+
+    if (g_ctx.mobileMode) {
+        if (app->settings || app->help || app->story.playing || app->menu || app->paused ||
+            app->game.state == WON || app->game.state == LOST) {
+            return;
+        }
+        Game *g = &app->game;
+        if (app->placing >= 0 && ptr.held && over(ptr.pos, battlefield)) {
+            float dx = ptr.pos.x - app->touchAim.x;
+            float dy = ptr.pos.y - app->touchAim.y;
+            if (clicked && app->hasTouchAim && (dx * dx + dy * dy) <= 324.0f) {
+                attempt_place(app, app->touchAim);
+            } else {
+                app->touchAim = ptr.pos;
+                app->hasTouchAim = true;
+                g_ctx.uiDirty = true;
+            }
+            return;
+        }
+        if (clicked && over(ptr.pos, battlefield)) {
+            if (app->placing >= 0) {
+                app->touchAim = ptr.pos;
+                app->hasTouchAim = true;
+            } else {
+                app->selected = tower_at(g, ptr.pos);
+                if (app->selected >= 0) ui_sfx(SFX_CLICK);
+            }
+            g_ctx.uiDirty = true;
+        }
+        return;
+    }
 
     if (app->settings) {
         if (IsKeyPressed(KEY_ESCAPE) || (clicked && over(ptr.pos, settingsBackButton))) {
@@ -450,7 +851,6 @@ static void update_input(App *app, Pointer ptr)
         return;
     }
 
-    /* Penanganan interaksi di atas peta untuk mouse laptop maupun layar sentuh HP. */
     if (app->placing >= 0 && ptr.isTouch && ptr.held && over(ptr.pos, battlefield)) {
         float dx = ptr.pos.x - app->touchAim.x;
         float dy = ptr.pos.y - app->touchAim.y;
@@ -694,7 +1094,7 @@ static void draw_placement(const App *app, Pointer ptr)
 {
     BeginScissorMode(12, 60, 474, 266);
     Vector2 aim = app->hasTouchAim ? app->touchAim : ptr.pos;
-    bool showGhost = app->placing >= 0 && (app->hasTouchAim || (!ptr.isTouch && over(ptr.pos, battlefield)));
+    bool showGhost = app->placing >= 0 && (app->hasTouchAim || (!ptr.isTouch && !g_ctx.mobileMode && over(ptr.pos, battlefield)));
     if (showGhost) {
         const TowerSpec *spec = &tower_specs[app->placing];
         bool valid = valid_ground(&app->game, aim) && app->game.money >= spec->price &&
@@ -718,7 +1118,7 @@ static void draw_placement(const App *app, Pointer ptr)
         const TowerSpec *spec = &tower_specs[t->kind];
         Vector2 p = t->pos;
         DrawCircleLines((int)p.x, (int)p.y, (float)spec->levels[t->level].range, Fade(AMBER, 0.63f));
-        if (t->level + 1 < MAX_LEVEL && over(ptr.pos, upgradeButton)) {
+        if (!g_ctx.mobileMode && t->level + 1 < MAX_LEVEL && over(ptr.pos, upgradeButton)) {
             float nextRange = (float)spec->levels[t->level + 1].range;
             DrawCircleV(p, nextRange, Fade(MINT, 0.08f));
             DrawCircleLines((int)p.x, (int)p.y, nextRange, Fade(MINT, 0.78f));
@@ -726,6 +1126,21 @@ static void draw_placement(const App *app, Pointer ptr)
         DrawEllipseLines((int)p.x, (int)p.y, 10, 4, AMBER);
     }
     EndScissorMode();
+}
+
+static void draw_mobile_crisis_pulse(const Game *g, bool reduced)
+{
+    if (g->state != CRISIS_WARNING) return;
+    float pulse = reduced ? 0.65f : 0.45f + 0.5f * sinf(g->phaseTime * 7.0f);
+    for (int band = 0; band < 3; band++) {
+        Rectangle r = {
+            battlefield.x + band * 2,
+            battlefield.y + band * 2,
+            battlefield.width - band * 4,
+            battlefield.height - band * 4
+        };
+        DrawRectangleLinesEx(r, 2.0f, Fade(ALERT_RED, (0.45f + 0.4f * pulse) * (3 - band) / 3.0f));
+    }
 }
 
 static void draw_overlay(const App *app, Pointer ptr)
@@ -875,30 +1290,31 @@ static MusicCue current_cue(const App *app)
     return MUSIC_PREPARE;
 }
 
-static Rectangle viewport(int screenWidth, int screenHeight)
+static Rectangle fit_aspect(int screenWidth, int screenHeight, float srcW, float srcH, bool floorInt)
 {
-    float scale = fminf((float)screenWidth / WIDTH, (float)screenHeight / HEIGHT);
-    if (scale >= 2.0f) scale = floorf(scale);
-    float w = floorf(WIDTH * scale), h = floorf(HEIGHT * scale);
+    float scale = fminf((float)screenWidth / srcW, (float)screenHeight / srcH);
+    if (floorInt && scale >= 2.0f) scale = floorf(scale);
+    float w = floorf(srcW * scale), h = floorf(srcH * scale);
     return (Rectangle){ floorf((screenWidth - w) / 2.0f), floorf((screenHeight - h) / 2.0f), w, h };
 }
 
-static Vector2 window_to_canvas(Vector2 cursor, Rectangle destination)
+static Vector2 window_to_canvas(Vector2 cursor, Rectangle destination, Rectangle logicalSrc)
 {
     if (destination.width <= 0 || destination.height <= 0) return (Vector2){ -1, -1 };
     return (Vector2){
-        (cursor.x - destination.x) * WIDTH / destination.width,
-        (cursor.y - destination.y) * HEIGHT / destination.height
+        logicalSrc.x + (cursor.x - destination.x) * logicalSrc.width / destination.width,
+        logicalSrc.y + (cursor.y - destination.y) * logicalSrc.height / destination.height
     };
 }
 
-static Pointer read_pointer(WebContext *ctx, Rectangle dest, int screenW, int screenH, float dt)
+static Pointer read_pointer(WebContext *ctx, Rectangle dest, Rectangle logicalSrc,
+                            int screenW, int screenH, float dt)
 {
     Pointer ptr = {0};
     int touches = GetTouchPointCount();
     if (touches > 0) {
         Vector2 screenPos = web_dom_pointer(screenW, screenH, GetTouchPosition(0));
-        ptr.pos = window_to_canvas(screenPos, dest);
+        ptr.pos = window_to_canvas(screenPos, dest, logicalSrc);
         ptr.pressed = !ctx->wasTouching;
         ptr.held = true;
         ptr.isTouch = true;
@@ -906,7 +1322,7 @@ static Pointer read_pointer(WebContext *ctx, Rectangle dest, int screenW, int sc
     } else {
         ctx->touchGrace = fmaxf(0.0f, ctx->touchGrace - dt);
         Vector2 screenPos = web_dom_pointer(screenW, screenH, GetMousePosition());
-        ptr.pos = window_to_canvas(screenPos, dest);
+        ptr.pos = window_to_canvas(screenPos, dest, logicalSrc);
         if (ctx->touchGrace <= 0.0f) {
             ptr.pressed = IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
             ptr.held = IsMouseButtonDown(MOUSE_BUTTON_LEFT);
@@ -924,14 +1340,24 @@ static void step_app(App *app, float dt, float *accumulator)
         *accumulator = 0;
         tick_story(&app->story, dt);
     } else if (!app->menu && !app->paused && !app->help) {
-        app->noticeTime -= dt;
+        if (app->noticeTime > 0) {
+            app->noticeTime -= dt;
+            if (app->noticeTime <= 0) g_ctx.uiDirty = true;
+        }
         RunState before = app->game.state;
         *accumulator += dt * (fighting(before) ? speeds[app->speedIndex] : 1);
         while (*accumulator >= fixedStep) {
+            int killsBefore = app->game.totalKills;
+            int moneyBefore = app->game.money;
+            int hpBefore = app->game.hp;
             tick_game(&app->game, fixedStep);
             *accumulator -= fixedStep;
+            if (app->game.totalKills != killsBefore || app->game.money != moneyBefore || app->game.hp != hpBefore) {
+                g_ctx.uiDirty = true;
+            }
             if (app->game.state != before) {
                 *accumulator = 0;
+                g_ctx.uiDirty = true;
                 if (app->game.state == CRISIS_GAP || app->game.state == WON || app->game.state == LOST)
                     app->speedIndex = 0;
                 if (app->game.state == WON || app->game.state == LOST) {
@@ -961,13 +1387,42 @@ static void web_frame(void *userData)
     WebContext *ctx = (WebContext *)userData;
     App *app = &ctx->app;
 
+    if (ctx->targetBufW > 0 && ctx->targetBufH > 0 &&
+        (GetScreenWidth() != ctx->targetBufW || GetScreenHeight() != ctx->targetBufH)) {
+        SetWindowSize(ctx->targetBufW, ctx->targetBufH);
+    }
     if (IsKeyPressed(KEY_F11)) web_toggle_fullscreen();
+
     float dt = fminf(GetFrameTime(), 0.1f);
     int screenW = GetScreenWidth();
     int screenH = GetScreenHeight();
-    Rectangle dest = viewport(screenW, screenH);
-    Pointer ptr = read_pointer(ctx, dest, screenW, screenH, dt);
 
+    /* Tentukan area logis kanvas yang ditampilkan: penuh 640x360 di PC, atau crop peta/cerita di HP. */
+    Rectangle logicalSrc = { 0, 0, (float)WIDTH, (float)HEIGHT };
+    Rectangle texSrc = { 0, 0, (float)WIDTH, -(float)HEIGHT };
+    if (ctx->mobileMode) {
+        if (app->story.playing) {
+            logicalSrc = (Rectangle){ 24, 20, 592, 245 };
+            texSrc = (Rectangle){ 24, (float)HEIGHT - 265, 592, -245 };
+        } else {
+            logicalSrc = battlefield;
+            texSrc = (Rectangle){
+                battlefield.x,
+                (float)HEIGHT - (battlefield.y + battlefield.height),
+                battlefield.width,
+                -battlefield.height
+            };
+        }
+    }
+
+    Rectangle dest = fit_aspect(screenW, screenH, logicalSrc.width, logicalSrc.height, !ctx->mobileMode);
+    int wantFilter = (dest.width / logicalSrc.width) < 2.0f ? TEXTURE_FILTER_BILINEAR : TEXTURE_FILTER_POINT;
+    if (ctx->lastFilterMode != wantFilter) {
+        SetTextureFilter(ctx->frame.texture, wantFilter);
+        ctx->lastFilterMode = wantFilter;
+    }
+
+    Pointer ptr = read_pointer(ctx, dest, logicalSrc, screenW, screenH, dt);
     update_input(app, ptr);
     step_app(app, dt, &ctx->accumulator);
 
@@ -988,34 +1443,54 @@ static void web_frame(void *userData)
     app->game.events = 0;
     app->storyJump = false;
 
+    if (ctx->mobileMode) {
+        ctx->uiSyncTimer += dt;
+        if (ctx->uiDirty || ((app->story.playing || fighting(app->game.state)) && ctx->uiSyncTimer >= 0.12f)) {
+            push_mobile_ui();
+        }
+    }
+
     BeginTextureMode(ctx->frame);
     ClearBackground(INK);
-    Pointer hiddenPtr = { .pos = { -1, -1 } };
-    Pointer bgPtr = (app->settings || app->paused || app->help) ? hiddenPtr : ptr;
-    if (app->story.playing) {
-        draw_story(&app->story, app->reducedMotion);
-        button(nextSceneButton, "LANJUT [ENTER]", true, true, ptr);
-        button(skipButton, "LEWATI [ESC]", true, false, ptr);
-    } else if (app->menu) {
-        draw_menu(app, bgPtr);
+    if (ctx->mobileMode) {
+        if (app->story.playing) {
+            draw_story(&app->story, app->reducedMotion);
+        } else if (app->menu) {
+            draw_map(&app->game, app->reducedMotion);
+        } else {
+            draw_map(&app->game, app->reducedMotion);
+            draw_combat(&app->game, app->reducedMotion);
+            if (!app->paused && !app->help && app->game.state != WON && app->game.state != LOST)
+                draw_placement(app, ptr);
+            draw_mobile_crisis_pulse(&app->game, app->reducedMotion);
+        }
     } else {
-        draw_map(&app->game, app->reducedMotion);
-        draw_combat(&app->game, app->reducedMotion);
-        if (!app->paused && !app->help && app->game.state != WON && app->game.state != LOST)
-            draw_placement(app, ptr);
-        draw_hud(app, bgPtr);
-        draw_crisis_warning(&app->game, app->reducedMotion);
-        if (app->paused || app->game.state == WON || app->game.state == LOST)
-            draw_overlay(app, (app->settings || app->help) ? hiddenPtr : ptr);
+        Pointer hiddenPtr = { .pos = { -1, -1 } };
+        Pointer bgPtr = (app->settings || app->paused || app->help) ? hiddenPtr : ptr;
+        if (app->story.playing) {
+            draw_story(&app->story, app->reducedMotion);
+            button(nextSceneButton, "LANJUT [ENTER]", true, true, ptr);
+            button(skipButton, "LEWATI [ESC]", true, false, ptr);
+        } else if (app->menu) {
+            draw_menu(app, bgPtr);
+        } else {
+            draw_map(&app->game, app->reducedMotion);
+            draw_combat(&app->game, app->reducedMotion);
+            if (!app->paused && !app->help && app->game.state != WON && app->game.state != LOST)
+                draw_placement(app, ptr);
+            draw_hud(app, bgPtr);
+            draw_crisis_warning(&app->game, app->reducedMotion);
+            if (app->paused || app->game.state == WON || app->game.state == LOST)
+                draw_overlay(app, (app->settings || app->help) ? hiddenPtr : ptr);
+        }
+        if (app->help) draw_help(ptr);
+        if (app->settings) draw_settings(app, ptr);
     }
-    if (app->help) draw_help(ptr);
-    if (app->settings) draw_settings(app, ptr);
     EndTextureMode();
 
     BeginDrawing();
     ClearBackground((Color){ 10, 14, 12, 255 });
-    DrawTexturePro(ctx->frame.texture, (Rectangle){ 0, 0, WIDTH, -HEIGHT }, dest,
-                   (Vector2){ 0, 0 }, 0, WHITE);
+    DrawTexturePro(ctx->frame.texture, texSrc, dest, (Vector2){ 0, 0 }, 0, WHITE);
     EndDrawing();
 }
 
@@ -1032,6 +1507,7 @@ int main(void)
         CloseWindow();
         return 1;
     }
+    g_ctx.lastFilterMode = TEXTURE_FILTER_POINT;
     SetTextureFilter(g_ctx.frame.texture, TEXTURE_FILTER_POINT);
     load_map_art();
     load_settings(&g_ctx.app);
